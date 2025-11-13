@@ -7,6 +7,9 @@ import platform
 
 from .build_common import execute_command, resolve_value
 
+from ..constants import KEY_BUILD_TYPE, KEY_FLAVOR, KEY_ENV, KEY_BUILD_MODE, \
+    KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS
+
 def _camel_case(s):
     """Převede 'prerelease' na 'Prerelease'."""
     if not s:
@@ -71,10 +74,10 @@ def find_and_rename_output(logger, params, env_vars):
     """
     logger.header("--- Hledám a přejmenovávám výstupní soubor ---")
     
-    build_type = params.get("build_type")
-    flavor = params.get("flavor")
-    env = params.get("env")
-    mode = params.get("build_mode")
+    build_type = params.get(KEY_BUILD_TYPE)
+    flavor = params.get(KEY_FLAVOR)
+    env = params.get(KEY_ENV)
+    mode = params.get(KEY_BUILD_MODE)
     version_name = params.get("_version_name")
     build_number = params.get("_build_number")
 
@@ -166,15 +169,15 @@ def run_android_tasks_post_build(logger, params, env_vars, actions_performed):
     (Přejmenování, Nahrání symbolů)
     """
     
-    flavor = params.get("flavor")
-    env = params.get("env")
+    flavor = params.get(KEY_FLAVOR)
+    env = params.get(KEY_ENV)
     
     # 1. Přejmenování souboru
     # Tato funkce si 'build_type' bere sama z 'params'
     output_dir = find_and_rename_output(logger, params, env_vars)
 
     # 2. Nahrání symbolů
-    if not params.get("disable_obfuscation", False) and params.get("upload_symbols", False):
+    if not params.get(KEY_DISABLE_OBFUSCATION, False) and params.get(KEY_UPLOAD_SYMBOLS, False):
         logger.header("--- Nahrávám symboly (Android) na Firebase ---")
         # 'flavor' a 'env' se používají zde:
         firebase_app_id = resolve_value("FIREBASE_APP_ID", flavor, env, env_vars)

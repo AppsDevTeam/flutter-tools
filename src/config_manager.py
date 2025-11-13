@@ -1,5 +1,11 @@
 import json
 import os
+from .constants import (
+    PRESET_MANUAL, KEY_TRANSLATIONS_PATH, KEY_BUILD_TYPE, KEY_BUILD_MODE,
+    KEY_FLAVOR, KEY_ENV, KEY_BUMP_VERSION, KEY_GIT_PUSH, 
+    KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS, KEY_INSTALL_COCOAPODS,
+    KEY_CHECK_SQLITE_WEB
+)
 
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 APP_ROOT_DIR = os.path.dirname(SRC_DIR)
@@ -47,21 +53,21 @@ class ConfigManager:
             "envs": [],
             "last_selected_build_preset": "Ručně",
             "build_presets": {
-                "Ručně": {
-                    "build_type": "apk",
-                    "build_mode": "release",
-                    "flavor": "",
-                    "env": "",
-                    "bump_version": True,
-                    "git_push": True,
-                    "disable_obfuscation": False,
-                    "upload_symbols": True,
-                    "install_cocoapods": True,
-                    "check_sqlite_web": False
+                PRESET_MANUAL: {
+                    KEY_BUILD_TYPE: "apk",
+                    KEY_BUILD_MODE: "release",
+                    KEY_FLAVOR: "",
+                    KEY_ENV: "",
+                    KEY_BUMP_VERSION: True,
+                    KEY_GIT_PUSH: True,
+                    KEY_DISABLE_OBFUSCATION: False,
+                    KEY_UPLOAD_SYMBOLS: True,
+                    KEY_INSTALL_COCOAPODS: True,
+                    KEY_CHECK_SQLITE_WEB: False
                 }
             },
             "nbsp_settings": {
-                "translations_path": "assets/translations"
+                KEY_TRANSLATIONS_PATH: "assets/translations"
             }
         }
         self.save_config()
@@ -85,9 +91,9 @@ class ConfigManager:
         # Pojistka pro případnou budoucí migraci (teď by neměla být potřeba)
         project_data.setdefault("flavors", [])
         project_data.setdefault("envs", [])
-        project_data.setdefault("build_presets", {"Ručně": {}})
-        project_data.setdefault("nbsp_settings", {"translations_path": "assets/translations"})
-        project_data.setdefault("last_selected_build_preset", "Ručně")
+        project_data.setdefault("build_presets", {PRESET_MANUAL: {}})
+        project_data.setdefault("nbsp_settings", {KEY_TRANSLATIONS_PATH: "assets/translations"})
+        project_data.setdefault("last_selected_build_preset", PRESET_MANUAL)
         
         return project_data
 
@@ -142,7 +148,8 @@ class ConfigManager:
     def get_project_build_presets(self, project_name):
         """Vrátí slovník všech build presetů pro daný projekt."""
         project_data = self._get_project(project_name)
-        return project_data.get('build_presets', {"Ručně": {}}) if project_data else {"Ručně": {}}
+        default = PRESET_MANUAL
+        return project_data.get('last_selected_build_preset', default) if project_data else default
 
     def save_project_build_preset(self, project_name, preset_name, settings):
         """Uloží nebo přepíše nastavení pro jeden build preset v rámci projektu."""
@@ -155,8 +162,8 @@ class ConfigManager:
         """Smaže jeden build preset z projektu."""
         project_data = self._get_project(project_name)
         if project_data and preset_name in project_data['build_presets']:
-            if preset_name == "Ručně":
-                print("Nelze smazat 'Ručně' preset.")
+            if preset_name == PRESET_MANUAL:
+                print(f"Nelze smazat '{preset_name}' preset.")
                 return
             del project_data['build_presets'][preset_name]
             self.save_config()
@@ -164,7 +171,8 @@ class ConfigManager:
     def get_last_build_preset_name(self, project_name):
         """Vrátí název naposledy použitého build presetu."""
         project_data = self._get_project(project_name)
-        return project_data.get('last_selected_build_preset', "Ručně") if project_data else "Ručně"
+        default = PRESET_MANUAL
+        return project_data.get('last_selected_build_preset', default) if project_data else default
 
     def save_last_build_preset_name(self, project_name, preset_name):
         """Uloží název naposledy použitého build presetu."""
@@ -178,7 +186,8 @@ class ConfigManager:
     def get_project_nbsp_settings(self, project_name):
         """Vrátí nastavení pro NBSP záložku."""
         project_data = self._get_project(project_name)
-        return project_data.get('nbsp_settings', {}) if project_data else {}
+        default = {KEY_TRANSLATIONS_PATH: "assets/translations"}
+        return project_data.get('nbsp_settings', default) if project_data else default
 
     def save_project_nbsp_settings(self, project_name, settings):
         """Uloží nastavení pro NBSP záložku."""

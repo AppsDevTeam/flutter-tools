@@ -11,7 +11,13 @@ from ..logic.nbsp_logic import run_add_nbsp_logic
 from ..logic.serializable_logic import run_json_serializable_logic
 from ..logic.build_logic import run_flutter_build_logic
 
-from ..constants import ADT_TOOLS_ENV_EXAMPLE, ADT_PROJECT_CONFIG_FILENAME
+from ..constants import (
+    ADT_TOOLS_ENV_EXAMPLE, ADT_PROJECT_CONFIG_FILENAME, PRESET_MANUAL,
+    KEY_TRANSLATIONS_PATH, KEY_PRESET, KEY_BUILD_TYPE, KEY_BUILD_MODE,
+    KEY_FLAVOR, KEY_ENV, KEY_BUMP_VERSION, KEY_GIT_PUSH, 
+    KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS, KEY_INSTALL_COCOAPODS,
+    KEY_CHECK_SQLITE_WEB
+)
 
 class MainWindow(tk.Toplevel):
     def __init__(self, parent, config_manager, current_project_name):
@@ -39,7 +45,7 @@ class MainWindow(tk.Toplevel):
         # Samostatná proměnná pro NBSP, načtená z configu
         nbsp_settings = self.config_manager.get_project_nbsp_settings(current_project_name)
         self.translations_path = tk.StringVar(
-            value=nbsp_settings.get("translations_path", "assets/translations")
+            value=nbsp_settings.get(KEY_TRANSLATIONS_PATH, "assets/translations")
         )
         # Sledování změn pro NBSP
         self.translations_path.trace_add("write", self._save_nbsp_settings)
@@ -147,24 +153,23 @@ class MainWindow(tk.Toplevel):
     def _initialize_build_vars(self):
         """Inicializuje všechny Tkinter proměnné POUZE pro záložku Build."""
         self.build_vars = {
-            "preset": tk.StringVar(value="Ručně"),
-            "build_type": tk.StringVar(value="apk"),
-            "build_mode": tk.StringVar(value="release"),
-            "flavor": tk.StringVar(),
-            "env": tk.StringVar(),
-            "bump_version": tk.BooleanVar(value=True),
-            "git_push": tk.BooleanVar(value=True),
-            "disable_obfuscation": tk.BooleanVar(value=False),
-            "upload_symbols": tk.BooleanVar(value=True),
-            "install_cocoapods": tk.BooleanVar(value=True),
-            "check_sqlite_web": tk.BooleanVar(value=False),
-            # 'translations_path' ODSTRANĚNO
+            KEY_PRESET: tk.StringVar(value=PRESET_MANUAL),
+            KEY_BUILD_TYPE: tk.StringVar(value="apk"),
+            KEY_BUILD_MODE: tk.StringVar(value="release"),
+            KEY_FLAVOR: tk.StringVar(),
+            KEY_ENV: tk.StringVar(),
+            KEY_BUMP_VERSION: tk.BooleanVar(value=True),
+            KEY_GIT_PUSH: tk.BooleanVar(value=True),
+            KEY_DISABLE_OBFUSCATION: tk.BooleanVar(value=False),
+            KEY_UPLOAD_SYMBOLS: tk.BooleanVar(value=True),
+            KEY_INSTALL_COCOAPODS: tk.BooleanVar(value=True),
+            KEY_CHECK_SQLITE_WEB: tk.BooleanVar(value=False),
         }
         
         # Propojení na ukládání při každé změně
         for key, var in self.build_vars.items():
             # Změna samotného presetu nemá spouštět ukládání!
-            if key == "preset":
+            if key == KEY_PRESET:
                 continue
             
             var.trace_add("write", self._save_current_build_settings)
@@ -176,7 +181,7 @@ class MainWindow(tk.Toplevel):
         
         # --- Řádek 0: Rychlé volby (Presety) ---
         ttk.Label(frame, text="Rychlá volba:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-        self.preset_selector = ttk.Combobox(frame, textvariable=self.build_vars["preset"], state="readonly")
+        self.preset_selector = ttk.Combobox(frame, textvariable=self.build_vars[KEY_PRESET], state="readonly")
         self.preset_selector.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
         self.preset_selector.bind("<<ComboboxSelected>>", self._on_preset_selected)
         
@@ -190,34 +195,34 @@ class MainWindow(tk.Toplevel):
         # ... (zbytek UI prvků) ...
         ttk.Label(frame, text="Typ buildu:").grid(row=2, column=0, sticky="w", padx=5, pady=2)
         build_type_combo = ttk.Combobox(
-            frame, textvariable=self.build_vars["build_type"],
+            frame, textvariable=self.build_vars[KEY_BUILD_TYPE],
             values=["apk", "appbundle", "ipa", "web"], state="readonly"
         )
         build_type_combo.grid(row=2, column=1, sticky="ew", padx=5, pady=2)
         ttk.Label(frame, text="Mód buildu:").grid(row=3, column=0, sticky="w", padx=5, pady=2)
         build_mode_combo = ttk.Combobox(
-            frame, textvariable=self.build_vars["build_mode"],
+            frame, textvariable=self.build_vars[KEY_BUILD_MODE],
             values=["release", "profile", "debug"], state="readonly"
         )
         build_mode_combo.grid(row=3, column=1, sticky="ew", padx=5, pady=2)
-        self.flavor_selector = self._create_dynamic_list_row(frame, 4, "Flavor:", "flavors", self.build_vars["flavor"])
-        self.env_selector = self._create_dynamic_list_row(frame, 5, "Env:", "envs", self.build_vars["env"])
+        self.flavor_selector = self._create_dynamic_list_row(frame, 4, "Flavor:", "flavors", self.build_vars[KEY_FLAVOR])
+        self.env_selector = self._create_dynamic_list_row(frame, 5, "Env:", "envs", self.build_vars[KEY_ENV])
         check_frame_1 = ttk.Frame(frame)
         check_frame_1.grid(row=6, column=0, columnspan=3, sticky="w", pady=5)
-        ttk.Checkbutton(check_frame_1, text="Povýšit verzi aplikace", variable=self.build_vars["bump_version"]).pack(anchor="w")
-        ttk.Checkbutton(check_frame_1, text="Nahrát na Git (Push)", variable=self.build_vars["git_push"]).pack(anchor="w")
-        ttk.Checkbutton(check_frame_1, text="Instalovat Cocoapods (pro iOS)", variable=self.build_vars["install_cocoapods"]).pack(anchor="w")
+        ttk.Checkbutton(check_frame_1, text="Povýšit verzi aplikace", variable=self.build_vars[KEY_BUMP_VERSION]).pack(anchor="w")
+        ttk.Checkbutton(check_frame_1, text="Nahrát na Git (Push)", variable=self.build_vars[KEY_GIT_PUSH]).pack(anchor="w")
+        ttk.Checkbutton(check_frame_1, text="Instalovat Cocoapods (pro iOS)", variable=self.build_vars[KEY_INSTALL_COCOAPODS]).pack(anchor="w")
         obfuscate_frame = ttk.LabelFrame(frame, text="Obfuskace & Symboly", padding=5)
         obfuscate_frame.grid(row=7, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
-        self.obfuscate_check = ttk.Checkbutton(obfuscate_frame, text="Vypnout obfuskaci", variable=self.build_vars["disable_obfuscation"])
+        self.obfuscate_check = ttk.Checkbutton(obfuscate_frame, text="Vypnout obfuskaci", variable=self.build_vars[KEY_DISABLE_OBFUSCATION])
         self.obfuscate_check.pack(anchor="w")
-        self.symbols_check = ttk.Checkbutton(obfuscate_frame, text="Nahrát symboly na Firebase", variable=self.build_vars["upload_symbols"])
+        self.symbols_check = ttk.Checkbutton(obfuscate_frame, text="Nahrát symboly na Firebase", variable=self.build_vars[KEY_UPLOAD_SYMBOLS])
         self.symbols_check.pack(anchor="w", padx=(20, 0))
         self.web_frame = ttk.LabelFrame(frame, text="Web", padding=5)
         self.web_frame.grid(row=8, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
         self.web_check = ttk.Checkbutton(
             self.web_frame, text="Zkontrolovat sqlite3.wasm & sqlite_sw.js",
-            variable=self.build_vars["check_sqlite_web"]
+            variable=self.build_vars[KEY_CHECK_SQLITE_WEB]
         )
         self.web_check.pack(anchor="w")
         frame.grid_rowconfigure(9, weight=1, minsize=150)
@@ -227,8 +232,8 @@ class MainWindow(tk.Toplevel):
         self.build_run_button.grid(row=10, column=0, columnspan=3)
 
         # --- Navázání logiky pro UI ---
-        self.build_vars["build_type"].trace_add("write", self._update_build_ui_state)
-        self.build_vars["disable_obfuscation"].trace_add("write", self._update_build_ui_state)
+        self.build_vars[KEY_BUILD_TYPE].trace_add("write", self._update_build_ui_state)
+        self.build_vars[KEY_DISABLE_OBFUSCATION].trace_add("write", self._update_build_ui_state)
         self._update_build_ui_state()
         self._update_preset_list()
         
@@ -277,16 +282,16 @@ class MainWindow(tk.Toplevel):
 
     def _update_build_ui_state(self, *args):
         try:
-            if self.build_vars["disable_obfuscation"].get():
+            if self.build_vars[KEY_DISABLE_OBFUSCATION].get():
                 self.symbols_check.config(state="disabled")
-                self.build_vars["upload_symbols"].set(False)
+                self.build_vars[KEY_UPLOAD_SYMBOLS].set(False)
             else:
                 self.symbols_check.config(state="normal")
-            if self.build_vars["build_type"].get() == "web":
+            if self.build_vars[KEY_BUILD_TYPE].get() == "web":
                 self.web_frame.grid() 
             else:
                 self.web_frame.grid_remove() 
-                self.build_vars["check_sqlite_web"].set(False)
+                self.build_vars[KEY_CHECK_SQLITE_WEB].set(False)
         except (AttributeError, tk.TclError):
             pass 
             
@@ -296,7 +301,7 @@ class MainWindow(tk.Toplevel):
         """Shromáždí všechna nastavení POUZE z build_vars do slovníku."""
         settings = {}
         for key, var in self.build_vars.items():
-            if key == "preset": continue 
+            if key == KEY_PRESET: continue 
             settings[key] = var.get()
         return settings
 
@@ -305,14 +310,14 @@ class MainWindow(tk.Toplevel):
         if not settings:
             settings = {}
         
-        # Načteme výchozí hodnoty z presetu "Ručně", pokud by klíč chyběl
-        default_settings = self.config_manager.get_project_build_presets(self.current_project_name).get("Ručně", {})
+        # Načteme výchozí hodnoty z presetu PRESET_MANUAL, pokud by klíč chyběl
+        default_settings = self.config_manager.get_project_build_presets(self.current_project_name).get(PRESET_MANUAL, {})
             
         for key, var in self.build_vars.items():
-            if key == "preset": continue
+            if key == KEY_PRESET: continue
             
             # 1. Vem hodnotu z načítaného presetu
-            # 2. Pokud tam není, vem ji z "Ručně" (jako fallback)
+            # 2. Pokud tam není, vem ji z PRESET_MANUAL (jako fallback)
             # 3. Pokud ani tam, vem aktuální hodnotu (jako poslední záchrana)
             fallback_value = default_settings.get(key, var.get())
             var.set(settings.get(key, fallback_value))
@@ -325,7 +330,7 @@ class MainWindow(tk.Toplevel):
         
         if not self.preset_selector: return 
         
-        current_preset = self.build_vars["preset"].get()
+        current_preset = self.build_vars[KEY_PRESET].get()
         current_settings = self._gather_build_settings()
         
         self.config_manager.save_project_build_preset(
@@ -340,14 +345,14 @@ class MainWindow(tk.Toplevel):
         all_presets = self.config_manager.get_project_build_presets(self.current_project_name)
         
         if preset_name not in all_presets:
-            preset_name = "Ručně"
+            preset_name = PRESET_MANUAL
             
-        self.build_vars["preset"].set(preset_name)
+        self.build_vars[KEY_PRESET].set(preset_name)
         self._on_preset_selected()
 
     def _on_preset_selected(self, *args):
         """Načte nastavení z vybraného build presetu."""
-        preset_name = self.build_vars["preset"].get()
+        preset_name = self.build_vars[KEY_PRESET].get()
         
         all_presets = self.config_manager.get_project_build_presets(self.current_project_name)
         settings = all_presets.get(preset_name, {})
@@ -366,7 +371,7 @@ class MainWindow(tk.Toplevel):
     def _add_preset(self):
         """Uloží aktuální nastavení jako nový preset."""
         preset_name = simpledialog.askstring("Nový preset", "Zadejte název nového presetu:", parent=self)
-        if not preset_name or preset_name == "Ručně":
+        if not preset_name or preset_name == PRESET_MANUAL:
             return
             
         current_settings = self._gather_build_settings()
@@ -377,19 +382,19 @@ class MainWindow(tk.Toplevel):
         )
         
         self._update_preset_list()
-        self.build_vars["preset"].set(preset_name)
+        self.build_vars[KEY_PRESET].set(preset_name)
 
     def _delete_preset(self):
         """Smaže vybraný preset."""
-        preset_name = self.build_vars["preset"].get()
-        if preset_name == "Ručně":
+        preset_name = self.build_vars[KEY_PRESET].get()
+        if preset_name == PRESET_MANUAL:
             messagebox.showwarning("Chyba", "Nelze smazat základní preset 'Ručně'.", parent=self)
             return
         
         if messagebox.askyesno("Opravdu smazat?", f"Opravdu chcete smazat preset '{preset_name}'?", parent=self):
             self.config_manager.delete_project_build_preset(self.current_project_name, preset_name)
             self._update_preset_list()
-            self.build_vars["preset"].set("Ručně") 
+            self.build_vars[KEY_PRESET].set(PRESET_MANUAL) 
             self._on_preset_selected()
 
     # --- NOVÁ METODA PRO UKLÁDÁNÍ NBSP ---

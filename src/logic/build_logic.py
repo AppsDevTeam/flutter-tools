@@ -2,6 +2,11 @@
 import os
 import re
 
+from ..constants import (
+    KEY_BUILD_TYPE, KEY_BUILD_MODE, KEY_FLAVOR, KEY_ENV, 
+    KEY_BUMP_VERSION, KEY_GIT_PUSH, KEY_DISABLE_OBFUSCATION, 
+    KEY_INSTALL_COCOAPODS
+)
 # --- NOVÉ IMPORTY ---
 from .build_common import (
     execute_command, parse_env_file, resolve_dart_defines,
@@ -25,9 +30,9 @@ def run_flutter_build_logic(params, logger):
     # --------------------------------------------------------------------------
     
     # Načtení parametrů z UI
-    build_type = params.get("build_type", "apk")
-    build_mode = params.get("build_mode", "release")
-    flavor = params.get("flavor")
+    build_type = params.get(KEY_BUILD_TYPE, "apk")
+    build_mode = params.get(KEY_BUILD_MODE, "release")
+    flavor = params.get(KEY_FLAVOR)
     
     # Sledování provedených akcí pro commit message
     actions_performed = {
@@ -50,7 +55,7 @@ def run_flutter_build_logic(params, logger):
         return
 
     # --- KROK 3: Povýšení verze ---
-    if params.get("bump_version", False):
+    if params.get(KEY_BUMP_VERSION, False):
         new_name, new_build = bump_version(logger)
         if new_name:
             version_name = new_name
@@ -64,13 +69,13 @@ def run_flutter_build_logic(params, logger):
         success = run_ios_tasks_pre_build(logger, params)
         if not success:
             return # Build přerušen
-        if params.get("install_cocoapods", False):
+        if params.get(KEY_INSTALL_COCOAPODS, False):
             actions_performed["cocoapods"] = True
 
     # --- KROK 5: Sestavení Flutter příkazu ---
     
     env_vars = parse_env_file(logger)
-    dart_defines = resolve_dart_defines(logger, flavor, params.get("env"), env_vars)
+    dart_defines = resolve_dart_defines(logger, flavor, params.get(KEY_ENV), env_vars)
     
     build_command = ['flutter', 'build', build_type, f'--{build_mode}']
 
@@ -79,7 +84,7 @@ def run_flutter_build_logic(params, logger):
     
     build_command.extend([f'--build-name={version_name}', f'--build-number={build_number}'])
     
-    if not params.get("disable_obfuscation", False):
+    if not params.get(KEY_DISABLE_OBFUSCATION, False):
         build_command.append('--obfuscate')
         build_command.append('--split-debug-info=build/app/outputs/symbols')
     
@@ -104,7 +109,7 @@ def run_flutter_build_logic(params, logger):
 
     # --- KROK 7: Nahrání na Git ---
     # Předáme parametry, verzi a slovník provedených akcí
-    if params.get("git_push", False):
+    if params.get(KEY_GIT_PUSH, False):
         perform_git_push(logger, params, version_name, build_number, actions_performed)
         
     # --- KROK 8: Otevření složky ---
