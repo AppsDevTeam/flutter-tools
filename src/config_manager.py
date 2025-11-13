@@ -2,7 +2,7 @@ import json
 import os
 from .constants import (
     PRESET_MANUAL, KEY_TRANSLATIONS_PATH, KEY_BUILD_TYPE, KEY_BUILD_MODE,
-    KEY_FLAVOR, KEY_ENV, KEY_BUMP_VERSION, KEY_GIT_PUSH, 
+    KEY_FLAVOR, KEY_ENV, KEY_BUMP_STRATEGY, BUMP_PATCH, KEY_GIT_PUSH, 
     KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS, KEY_INSTALL_COCOAPODS,
     KEY_CHECK_SQLITE_WEB
 )
@@ -58,7 +58,7 @@ class ConfigManager:
                     KEY_BUILD_MODE: "release",
                     KEY_FLAVOR: "",
                     KEY_ENV: "",
-                    KEY_BUMP_VERSION: True,
+                    KEY_BUMP_STRATEGY: BUMP_PATCH, # Zde jsi měl BUMP_PATCH, tak to nechávám
                     KEY_GIT_PUSH: True,
                     KEY_DISABLE_OBFUSCATION: False,
                     KEY_UPLOAD_SYMBOLS: True,
@@ -88,7 +88,10 @@ class ConfigManager:
         
         project_data = projects[project_name]
         
-        # Pojistka pro případnou budoucí migraci (teď by neměla být potřeba)
+        if not isinstance(project_data, dict):
+             print(f"CHYBA: Záznam pro projekt '{project_name}' není slovník!")
+             return None
+        
         project_data.setdefault("flavors", [])
         project_data.setdefault("envs", [])
         project_data.setdefault("build_presets", {PRESET_MANUAL: {}})
@@ -145,23 +148,46 @@ class ConfigManager:
 
     # --- Presety Buildu ---
 
+    # --- ZDE JE OPRAVENÁ METODA ---
     def get_project_build_presets(self, project_name):
-        """Vrátí slovník všech build presetů pro daný projekt."""
+        """
+        Vrátí slovník všech build presetů pro daný projekt.
+        Opraví data, pokud jsou poškozená (např. string).
+        """
         project_data = self._get_project(project_name)
-        default = PRESET_MANUAL
-        return project_data.get('last_selected_build_preset', default) if project_data else default
+        default_presets = {PRESET_MANUAL: {}}
+        
+        if not project_data:
+            return default_presets
+
+        presets = project_data.get('build_presets', default_presets)
+        
+        # Pojistka: Pokud je 'presets' string (což způsobovalo chybu), 
+        # okamžitě ho opravíme a vrátíme výchozí hodnotu.
+        if not isinstance(presets, dict):
+            print(f"OPRAVA: 'build_presets' pro '{project_name}' byl poškozen. Resetuji na výchozí.")
+            project_data['build_presets'] = default_presets
+            self.save_config() # Uložíme opravu
+            return default_presets
+            
+        return presets
+    # --- KONEC OPRAVENÉ METODY ---
 
     def save_project_build_preset(self, project_name, preset_name, settings):
         """Uloží nebo přepíše nastavení pro jeden build preset v rámci projektu."""
         project_data = self._get_project(project_name)
         if project_data:
+            # Pojistka, kdyby 'build_presets' stále nebyl dict
+            if not isinstance(project_data['build_presets'], dict):
+                project_data['build_presets'] = {PRESET_MANUAL: {}}
             project_data['build_presets'][preset_name] = settings
             self.save_config()
 
     def delete_project_build_preset(self, project_name, preset_name):
         """Smaže jeden build preset z projektu."""
         project_data = self._get_project(project_name)
-        if project_data and preset_name in project_data['build_presets']:
+        # Použijeme .get() pro bezpečný přístup
+        if project_data and preset_name in project_data.get('build_presets', {}):
             if preset_name == PRESET_MANUAL:
                 print(f"Nelze smazat '{preset_name}' preset.")
                 return
@@ -187,7 +213,20 @@ class ConfigManager:
         """Vrátí nastavení pro NBSP záložku."""
         project_data = self._get_project(project_name)
         default = {KEY_TRANSLATIONS_PATH: "assets/translations"}
-        return project_data.get('nbsp_settings', default) if project_data else default
+        
+        if not project_data:
+            return default
+            
+        settings = project_data.get('nbsp_settings', default)
+        
+        # Pojistka
+        if not isinstance(settings, dict):
+            print(f"OPRAVA: 'nbsp_settings' pro '{project_name}' byl poškozen. Resetuji.")
+            project_data['nbsp_settings'] = default
+            self.save_config()
+            return default
+            
+        return settings
 
     def save_project_nbsp_settings(self, project_name, settings):
         """Uloží nastavení pro NBSP záložku."""

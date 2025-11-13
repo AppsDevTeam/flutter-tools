@@ -4,7 +4,7 @@ import re
 
 from ..constants import (
     KEY_BUILD_TYPE, KEY_BUILD_MODE, KEY_FLAVOR, KEY_ENV, 
-    KEY_BUMP_VERSION, KEY_GIT_PUSH, KEY_DISABLE_OBFUSCATION, 
+    KEY_BUMP_STRATEGY, BUMP_NONE, KEY_GIT_PUSH, KEY_DISABLE_OBFUSCATION, 
     KEY_INSTALL_COCOAPODS
 )
 # --- NOVÉ IMPORTY ---
@@ -55,14 +55,21 @@ def run_flutter_build_logic(params, logger):
         return
 
     # --- KROK 3: Povýšení verze ---
-    if params.get(KEY_BUMP_VERSION, False):
-        new_name, new_build = bump_version(logger)
+    strategy = params.get(KEY_BUMP_STRATEGY, BUMP_NONE)
+    if strategy != BUMP_NONE:
+        # Voláme novou funkci s parametrem strategie
+        new_name, new_build = bump_version(logger, strategy)
         if new_name:
             version_name = new_name
             build_number = new_build
             actions_performed["version"] = True
         else:
             logger.error("Povýšení verze selhalo. Pokračuji s původní verzí.")
+    else:
+        logger.info("Povýšení verze přeskočeno (dle nastavení).")
+
+    params["_version_name"] = version_name
+    params["_build_number"] = build_number
 
     # --- KROK 4: Platform-specific úkoly PŘED buildem ---
     if build_type == 'ipa':

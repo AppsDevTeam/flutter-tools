@@ -10,11 +10,13 @@ from .project_selection import AddProjectDialog
 from ..logic.nbsp_logic import run_add_nbsp_logic
 from ..logic.serializable_logic import run_json_serializable_logic
 from ..logic.build_logic import run_flutter_build_logic
+from ..logic.build_common import get_version_from_pubspec, calculate_bump
 
 from ..constants import (
     ADT_TOOLS_ENV_EXAMPLE, ADT_PROJECT_CONFIG_FILENAME, PRESET_MANUAL,
     KEY_TRANSLATIONS_PATH, KEY_PRESET, KEY_BUILD_TYPE, KEY_BUILD_MODE,
-    KEY_FLAVOR, KEY_ENV, KEY_BUMP_VERSION, KEY_GIT_PUSH, 
+    KEY_FLAVOR, KEY_ENV, KEY_BUMP_STRATEGY, BUMP_NONE, BUMP_MAJOR, 
+    BUMP_MINOR, BUMP_PATCH, BUMP_BUILD, KEY_GIT_PUSH, 
     KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS, KEY_INSTALL_COCOAPODS,
     KEY_CHECK_SQLITE_WEB
 )
@@ -41,6 +43,9 @@ class MainWindow(tk.Toplevel):
         self.preset_selector = None
         self.flavor_selector = None
         self.env_selector = None
+
+        self.bump_strategy_map = {} # např. {"Povýšit major (2.0.0+6)": "major"}
+        self.bump_dropdown = None # Reference na combobox
         
         # Samostatná proměnná pro NBSP, načtená z configu
         nbsp_settings = self.config_manager.get_project_nbsp_settings(current_project_name)
@@ -56,6 +61,8 @@ class MainWindow(tk.Toplevel):
         
         # Načteme UI do stavu podle configu (až po vytvoření widgetů)
         self._load_last_preset()
+
+        self._update_bump_dropdown_options()
 
     # ... (metody _switch_to_project, _ensure_project_config_exists, _create_widgets zůstávají stejné) ...
     def _switch_to_project(self, project_name):
@@ -158,7 +165,7 @@ class MainWindow(tk.Toplevel):
             KEY_BUILD_MODE: tk.StringVar(value="release"),
             KEY_FLAVOR: tk.StringVar(),
             KEY_ENV: tk.StringVar(),
-            KEY_BUMP_VERSION: tk.BooleanVar(value=True),
+            KEY_BUMP_STRATEGY: tk.StringVar(value=BUMP_PATCH),
             KEY_GIT_PUSH: tk.BooleanVar(value=True),
             KEY_DISABLE_OBFUSCATION: tk.BooleanVar(value=False),
             KEY_UPLOAD_SYMBOLS: tk.BooleanVar(value=True),
@@ -175,24 +182,20 @@ class MainWindow(tk.Toplevel):
             var.trace_add("write", self._save_current_build_settings)
         
     def _create_build_tab(self):
-        # ... (metoda zůstává stejná, jen už neobsahuje 'translations_path') ...
         frame = ttk.Frame(self.notebook, padding="10")
         frame.grid_columnconfigure(1, weight=1)
         
-        # --- Řádek 0: Rychlé volby (Presety) ---
+        # ... (preset, separator, build type, build mode, flavor, env) ...
+        # (Řádky 0-5 zůstávají stejné)
         ttk.Label(frame, text="Rychlá volba:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
         self.preset_selector = ttk.Combobox(frame, textvariable=self.build_vars[KEY_PRESET], state="readonly")
         self.preset_selector.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
         self.preset_selector.bind("<<ComboboxSelected>>", self._on_preset_selected)
-        
         preset_btn_frame = ttk.Frame(frame)
         preset_btn_frame.grid(row=0, column=2, sticky="w")
         ttk.Button(preset_btn_frame, text="+", width=3, command=self._add_preset).pack(side="left", padx=(0, 5))
         ttk.Button(preset_btn_frame, text="-", width=3, command=self._delete_preset).pack(side="left")
-        
         ttk.Separator(frame, orient="horizontal").grid(row=1, column=0, columnspan=3, sticky="ew", pady=10)
-
-        # ... (zbytek UI prvků) ...
         ttk.Label(frame, text="Typ buildu:").grid(row=2, column=0, sticky="w", padx=5, pady=2)
         build_type_combo = ttk.Combobox(
             frame, textvariable=self.build_vars[KEY_BUILD_TYPE],
@@ -207,17 +210,40 @@ class MainWindow(tk.Toplevel):
         build_mode_combo.grid(row=3, column=1, sticky="ew", padx=5, pady=2)
         self.flavor_selector = self._create_dynamic_list_row(frame, 4, "Flavor:", "flavors", self.build_vars[KEY_FLAVOR])
         self.env_selector = self._create_dynamic_list_row(frame, 5, "Env:", "envs", self.build_vars[KEY_ENV])
-        check_frame_1 = ttk.Frame(frame)
-        check_frame_1.grid(row=6, column=0, columnspan=3, sticky="w", pady=5)
-        ttk.Checkbutton(check_frame_1, text="Povýšit verzi aplikace", variable=self.build_vars[KEY_BUMP_VERSION]).pack(anchor="w")
-        ttk.Checkbutton(check_frame_1, text="Nahrát na Git (Push)", variable=self.build_vars[KEY_GIT_PUSH]).pack(anchor="w")
-        ttk.Checkbutton(check_frame_1, text="Instalovat Cocoapods (pro iOS)", variable=self.build_vars[KEY_INSTALL_COCOAPODS]).pack(anchor="w")
+
+        # --- ZMĚNA ROZLOŽENÍ ZDE (ŘÁDEK 6) ---
+        # Frame pro Verzi a Checkboxy
+        tasks_frame = ttk.Frame(frame)
+        tasks_frame.grid(row=6, column=0, columnspan=3, sticky="ew", pady=5)
+        tasks_frame.grid_columnconfigure(1, weight=1) # Necháme dropdown roztahovat
+
+        # Řádek 0 (uvnitř tasks_frame): Verze
+        ttk.Label(tasks_frame, text="Verze aplikace:").grid(row=0, column=0, sticky="nw", padx=5)
+        self.bump_dropdown = ttk.Combobox(tasks_frame, state="readonly", width=30)
+        self.bump_dropdown.grid(row=0, column=1, sticky="ew")
+        self.bump_dropdown.bind("<<ComboboxSelected>>", self._on_bump_strategy_selected)
+        
+        # Řádek 1 (uvnitř tasks_frame): Checkboxy
+        # Nový pod-frame pro checkboxy
+        checkbox_subframe = ttk.Frame(tasks_frame)
+        
+        # --- OPRAVA ZDE ---
+        # Umístíme ho pod label (column 0) a necháme ho roztáhnout (columnspan=2)
+        checkbox_subframe.grid(row=1, column=0, columnspan=2, sticky="w", pady=(5,0), padx=5)
+
+        ttk.Checkbutton(checkbox_subframe, text="Nahrát na Git (Push)", variable=self.build_vars[KEY_GIT_PUSH]).pack(anchor="w")
+        ttk.Checkbutton(checkbox_subframe, text="Instalovat Cocoapods (pro iOS)", variable=self.build_vars[KEY_INSTALL_COCOAPODS]).pack(anchor="w")
+        # --- KONEC ZMĚNY ---
+
+        # ... (zbytek: obfuscate_frame, web_frame, konzole, tlačítko) ...
+        # Všechny ostatní řádky se posunuly o 1 dolů
         obfuscate_frame = ttk.LabelFrame(frame, text="Obfuskace & Symboly", padding=5)
         obfuscate_frame.grid(row=7, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
         self.obfuscate_check = ttk.Checkbutton(obfuscate_frame, text="Vypnout obfuskaci", variable=self.build_vars[KEY_DISABLE_OBFUSCATION])
         self.obfuscate_check.pack(anchor="w")
         self.symbols_check = ttk.Checkbutton(obfuscate_frame, text="Nahrát symboly na Firebase", variable=self.build_vars[KEY_UPLOAD_SYMBOLS])
         self.symbols_check.pack(anchor="w", padx=(20, 0))
+        
         self.web_frame = ttk.LabelFrame(frame, text="Web", padding=5)
         self.web_frame.grid(row=8, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
         self.web_check = ttk.Checkbutton(
@@ -225,19 +251,91 @@ class MainWindow(tk.Toplevel):
             variable=self.build_vars[KEY_CHECK_SQLITE_WEB]
         )
         self.web_check.pack(anchor="w")
+        
         frame.grid_rowconfigure(9, weight=1, minsize=150)
         self.build_console = scrolledtext.ScrolledText(frame, wrap=tk.WORD, state="disabled")
         self.build_console.grid(row=9, column=0, columnspan=3, sticky="nsew", pady=(5, 10))
+        
         self.build_run_button = ttk.Button(frame, text="Spustit build", command=self._run_build_script)
         self.build_run_button.grid(row=10, column=0, columnspan=3)
 
-        # --- Navázání logiky pro UI ---
+        # Navázání logiky (beze změny)
         self.build_vars[KEY_BUILD_TYPE].trace_add("write", self._update_build_ui_state)
         self.build_vars[KEY_DISABLE_OBFUSCATION].trace_add("write", self._update_build_ui_state)
         self._update_build_ui_state()
-        self._update_preset_list()
+        self.build_vars[KEY_BUILD_TYPE].trace_add("write", lambda *args: self._update_build_ui_state())
+        self.build_vars[KEY_DISABLE_OBFUSCATION].trace_add("write", lambda *args: self._update_build_ui_state())
         
         return frame
+    
+    def _update_bump_dropdown_options(self):
+        """Načte aktuální verzi a dynamicky naplní dropdown pro povýšení verze."""
+        if not self.bump_dropdown: # Pojistka, pokud se volá příliš brzy
+            return
+            
+        # 1. Načteme aktuální verzi
+        # Použijeme "falešný" logger, který jen sbírá chyby
+        class VersionLogger:
+            def __init__(self): self.error = None
+            def info(self,t): pass
+            def header(self,t): pass
+            def success(self,t): pass
+            def error(self,t): self.error = t
+            def warn(self,t): pass
+            def raw(self,t): pass
+        
+        v_logger = VersionLogger()
+        _, v_name, b_num = get_version_from_pubspec(v_logger, log=False)
+        
+        if not v_name:
+            self.bump_dropdown['values'] = ["Chyba čtení pubspec.yaml"]
+            self.bump_dropdown.set("Chyba čtení pubspec.yaml")
+            if v_logger.error:
+                messagebox.showerror("Chyba verze", v_logger.error, parent=self)
+            return
+            
+        # 2. Vypočítáme všechny možnosti
+        strategies = {
+            BUMP_NONE: "Nepovyšovat",
+            BUMP_PATCH: "Povýšit patch",
+            BUMP_BUILD: "Povýšit pouze build",
+            BUMP_MINOR: "Povýšit minor",
+            BUMP_MAJOR: "Povýšit major"
+        }
+        
+        self.bump_strategy_map = {} # Mapování: "Popisek (1.2.4+6)" -> "patch"
+        new_values = []
+        
+        for key, label in strategies.items():
+            new_v, new_b = calculate_bump(v_name, b_num, key)
+            full_string = f"{label}  ({new_v}+{new_b})"
+            self.bump_strategy_map[full_string] = key
+            new_values.append(full_string)
+
+        # 3. Aktualizujeme dropdown
+        self.bump_dropdown['values'] = new_values
+        
+        # 4. Nastavíme aktuálně vybranou hodnotu
+        current_strategy_key = self.build_vars[KEY_BUMP_STRATEGY].get()
+        current_value_string = None
+        for k, v in self.bump_strategy_map.items():
+            if v == current_strategy_key:
+                current_value_string = k
+                break
+        
+        if current_value_string:
+            self.bump_dropdown.set(current_value_string)
+        else:
+            self.bump_dropdown.set(new_values[0]) # Fallback na "Nepovyšovat"
+    
+    def _on_bump_strategy_selected(self, event=None):
+        """Zavolá se při výběru z dropdownu verzí."""
+        selected_string = self.bump_dropdown.get()
+        strategy_key = self.bump_strategy_map.get(selected_string, BUMP_NONE)
+        
+        # Uložíme klíč ("patch", "major", atd.) do naší proměnné
+        # Tím se automaticky spustí _save_current_build_settings
+        self.build_vars[KEY_BUMP_STRATEGY].set(strategy_key)
 
     # ... (metody _create_dynamic_list_row, _update_dynamic_list, _add_to_list_dialog, 
     # ... _remove_from_list, _update_build_ui_state zůstávají stejné) ...

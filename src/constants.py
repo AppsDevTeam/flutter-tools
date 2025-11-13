@@ -40,9 +40,17 @@ KEY_BUILD_TYPE = "build_type"
 KEY_BUILD_MODE = "build_mode"
 KEY_FLAVOR = "flavor"
 KEY_ENV = "env"
-KEY_BUMP_VERSION = "bump_version"
 KEY_GIT_PUSH = "git_push"
 KEY_DISABLE_OBFUSCATION = "disable_obfuscation"
 KEY_UPLOAD_SYMBOLS = "upload_symbols"
 KEY_INSTALL_COCOAPODS = "install_cocoapods"
 KEY_CHECK_SQLITE_WEB = "check_sqlite_web"
+
+KEY_BUMP_STRATEGY = "bump_strategy" 
+
+# Klíče pro jednotlivé strategie
+BUMP_NONE = "none"
+BUMP_MAJOR = "major"
+BUMP_MINOR = "minor"
+BUMP_PATCH = "patch"
+BUMP_BUILD = "build"
