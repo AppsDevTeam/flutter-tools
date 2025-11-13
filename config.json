@@ -1,0 +1,94 @@
+{
+    "projects": {
+        "Pokladna": {
+            "path": "/Users/adt/Programovani/pokladna-flutter",
+            "flavors": [
+                "cashDesk",
+                "tapygo"
+            ],
+            "envs": [
+                "prerelease",
+                "prod"
+            ],
+            "build_presets": {
+                "Ru\u010dn\u011b": {
+                    "build_type": "apk",
+                    "build_mode": "release",
+                    "flavor": "",
+                    "env": "",
+                    "bump_version": true,
+                    "git_push": true,
+                    "disable_obfuscation": false,
+                    "upload_symbols": true,
+                    "install_cocoapods": true,
+                    "check_sqlite_web": false
+                }
+            },
+            "nbsp_settings": {
+                "translations_path": "assets/translation"
+            },
+            "last_selected_build_preset": "Ru\u010dn\u011b"
+        },
+        "SelfInstallApp": {
+            "path": "/Users/adt/Programovani/SelfInstallApp",
+            "flavors": [],
+            "envs": [],
+            "last_selected_build_preset": "Ru\u010dn\u011b",
+            "build_presets": {
+                "Ru\u010dn\u011b": {
+                    "build_type": "apk",
+                    "build_mode": "release",
+                    "flavor": "",
+                    "env": "",
+                    "bump_version": true,
+                    "git_push": true,
+                    "disable_obfuscation": false,
+                    "upload_symbols": true,
+                    "install_cocoapods": true,
+                    "check_sqlite_web": false
+                }
+            },
+            "nbsp_settings": {
+                "translations_path": "assets/translations"
+            }
+        },
+        "POS Service": {
+            "path": "/Users/adt/Programovani/pos-service-flutter",
+            "flavors": [],
+            "envs": [],
+            "last_selected_build_preset": "Ru\u010dn\u011b",
+            "build_presets": {
+                "Ru\u010dn\u011b": {
+                    "build_type": "appbundle",
+                    "build_mode": "release",
+                    "flavor": "",
+                    "env": "",
+                    "bump_version": true,
+                    "git_push": true,
+                    "disable_obfuscation": false,
+                    "upload_symbols": true,
+                    "install_cocoapods": true,
+                    "check_sqlite_web": false
+                },
+                "tapygo": {
+                    "build_type": "apk",
+                    "build_mode": "release",
+                    "flavor": "",
+                    "env": "",
+                    "bump_version": true,
+                    "git_push": true,
+                    "disable_obfuscation": false,
+                    "upload_symbols": true,
+                    "install_cocoapods": true,
+                    "check_sqlite_web": false
+                }
+            },
+            "nbsp_settings": {
+                "translations_path": "assets/translations"
+            }
+        }
+    },
+    "last_project": "POS Service",
+    "last_tab": 0,
+    "presets": {}
+}
