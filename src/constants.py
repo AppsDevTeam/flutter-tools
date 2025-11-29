@@ -10,6 +10,9 @@ ADT_PROJECT_CONFIG_FILENAME = "adt_tools_config.env"
 # Šablona pro nově vytvořený konfigurační soubor
 ADT_TOOLS_ENV_EXAMPLE = """PACKAGE_NAME=\"com.vasetvafirma.vasappka\"
 
+# Nastavení pro Desktop (macOS, Linux, Windows)
+# DESKTOP_APP_NAME="MojeAplikace"
+
 # Ukázka pro flavors
 # FIREBASE_APP_ID_cashdesk_prod="xxx"
 # FIREBASE_APP_ID_cashdesk_prerelease="xxx"

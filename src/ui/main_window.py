@@ -180,6 +180,25 @@ class MainWindow(tk.Toplevel):
                 continue
             
             var.trace_add("write", self._save_current_build_settings)
+
+    def _create_checkbox(self, parent, text, var_key, **pack_kwargs):
+        """
+        Vytvoří Checkbutton, naváže ho na proměnnou a command, a zabalí ho.
+        Vrací vytvořený widget (pro případnou další manipulaci).
+        """
+        check = ttk.Checkbutton(
+            parent, 
+            text=text, 
+            variable=self.build_vars[var_key],
+            command=self._save_current_build_settings
+        )
+        
+        # Výchozí parametry pro pack, pokud nejsou přepsány v pack_kwargs
+        pack_args = {"anchor": "w", "pady": 2}
+        pack_args.update(pack_kwargs)
+        
+        check.pack(**pack_args)
+        return check
         
     def _create_build_tab(self):
         frame = ttk.Frame(self.notebook, padding="10")
@@ -199,7 +218,7 @@ class MainWindow(tk.Toplevel):
         ttk.Label(frame, text="Typ buildu:").grid(row=2, column=0, sticky="w", padx=5, pady=2)
         build_type_combo = ttk.Combobox(
             frame, textvariable=self.build_vars[KEY_BUILD_TYPE],
-            values=["apk", "appbundle", "ipa", "web"], state="readonly"
+            values=["apk", "appbundle", "ipa", "web", "macos", "linux", "windows"], state="readonly"
         )
         build_type_combo.grid(row=2, column=1, sticky="ew", padx=5, pady=2)
         ttk.Label(frame, text="Mód buildu:").grid(row=3, column=0, sticky="w", padx=5, pady=2)
@@ -223,34 +242,34 @@ class MainWindow(tk.Toplevel):
         self.bump_dropdown.grid(row=0, column=1, sticky="ew")
         self.bump_dropdown.bind("<<ComboboxSelected>>", self._on_bump_strategy_selected)
         
-        # Řádek 1 (uvnitř tasks_frame): Checkboxy
-        # Nový pod-frame pro checkboxy
         checkbox_subframe = ttk.Frame(tasks_frame)
-        
-        # --- OPRAVA ZDE ---
-        # Umístíme ho pod label (column 0) a necháme ho roztáhnout (columnspan=2)
         checkbox_subframe.grid(row=1, column=0, columnspan=2, sticky="w", pady=(5,0), padx=5)
 
-        ttk.Checkbutton(checkbox_subframe, text="Nahrát na Git (Push)", variable=self.build_vars[KEY_GIT_PUSH]).pack(anchor="w")
-        ttk.Checkbutton(checkbox_subframe, text="Instalovat Cocoapods (pro iOS)", variable=self.build_vars[KEY_INSTALL_COCOAPODS]).pack(anchor="w")
-        # --- KONEC ZMĚNY ---
+        self._create_checkbox(checkbox_subframe, "Nahrát na Git (Push)", KEY_GIT_PUSH)
+        self._create_checkbox(checkbox_subframe, "Instalovat Cocoapods (pro iOS)", KEY_INSTALL_COCOAPODS)
 
         # ... (zbytek: obfuscate_frame, web_frame, konzole, tlačítko) ...
         # Všechny ostatní řádky se posunuly o 1 dolů
         obfuscate_frame = ttk.LabelFrame(frame, text="Obfuskace & Symboly", padding=5)
         obfuscate_frame.grid(row=7, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
-        self.obfuscate_check = ttk.Checkbutton(obfuscate_frame, text="Vypnout obfuskaci", variable=self.build_vars[KEY_DISABLE_OBFUSCATION])
+        
+        self.obfuscate_check = self._create_checkbox(obfuscate_frame, "Vypnout obfuskaci", KEY_DISABLE_OBFUSCATION)
         self.obfuscate_check.pack(anchor="w")
-        self.symbols_check = ttk.Checkbutton(obfuscate_frame, text="Nahrát symboly na Firebase", variable=self.build_vars[KEY_UPLOAD_SYMBOLS])
-        self.symbols_check.pack(anchor="w", padx=(20, 0))
+
+        self.symbols_check = self._create_checkbox(
+            obfuscate_frame, 
+            "Nahrát symboly na Firebase", 
+            KEY_UPLOAD_SYMBOLS, 
+            padx=(20, 0)
+        )
         
         self.web_frame = ttk.LabelFrame(frame, text="Web", padding=5)
         self.web_frame.grid(row=8, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
-        self.web_check = ttk.Checkbutton(
-            self.web_frame, text="Zkontrolovat sqlite3.wasm & sqlite_sw.js",
-            variable=self.build_vars[KEY_CHECK_SQLITE_WEB]
+        self.web_check = self._create_checkbox(
+            self.web_frame, 
+            "Zkontrolovat sqlite3.wasm & sqlite_sw.js", 
+            KEY_CHECK_SQLITE_WEB
         )
-        self.web_check.pack(anchor="w")
         
         frame.grid_rowconfigure(9, weight=1, minsize=150)
         self.build_console = scrolledtext.ScrolledText(frame, wrap=tk.WORD, state="disabled")
@@ -341,13 +360,20 @@ class MainWindow(tk.Toplevel):
     # ... _remove_from_list, _update_build_ui_state zůstávají stejné) ...
     def _create_dynamic_list_row(self, parent, row, label, list_name, var):
         ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", padx=5, pady=2)
+        
         combobox = ttk.Combobox(parent, textvariable=var, state="readonly")
         combobox.grid(row=row, column=1, sticky="ew", padx=5, pady=2)
+
+        combobox.bind("<<ComboboxSelected>>", self._save_current_build_settings)
+        
         btn_frame = ttk.Frame(parent)
         btn_frame.grid(row=row, column=2, sticky="w")
+        
         ttk.Button(btn_frame, text="+", width=3, command=lambda: self._add_to_list_dialog(list_name, combobox)).pack(side="left", padx=(0, 5))
         ttk.Button(btn_frame, text="-", width=3, command=lambda: self._remove_from_list(list_name, combobox)).pack(side="left")
+        
         self._update_dynamic_list(combobox, list_name)
+        
         return combobox
 
     def _update_dynamic_list(self, combobox, list_name):
