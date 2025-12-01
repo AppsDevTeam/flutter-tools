@@ -4,7 +4,7 @@ from .constants import (
     PRESET_MANUAL, KEY_TRANSLATIONS_PATH, KEY_BUILD_TYPE, KEY_BUILD_MODE,
     KEY_FLAVOR, KEY_ENV, KEY_BUMP_STRATEGY, BUMP_PATCH, KEY_GIT_PUSH, 
     KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS, KEY_INSTALL_COCOAPODS,
-    KEY_CHECK_SQLITE_WEB
+    KEY_CHECK_SQLITE_WEB, KEY_CREATE_INSTALLER, DEFAULT_INNO_CONFIG
 )
 
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -46,25 +46,30 @@ class ConfigManager:
         """Přidá projekt s výchozí strukturou."""
         if 'projects' not in self.config:
             self.config['projects'] = {}
+
+        default_preset = {
+            KEY_BUILD_TYPE: "apk",
+            KEY_BUILD_MODE: "release",
+            KEY_FLAVOR: "",
+            KEY_ENV: "",
+            KEY_BUMP_STRATEGY: BUMP_PATCH,
+            KEY_GIT_PUSH: True,
+            KEY_DISABLE_OBFUSCATION: False,
+            KEY_UPLOAD_SYMBOLS: True,
+            KEY_INSTALL_COCOAPODS: True,
+            KEY_CHECK_SQLITE_WEB: False,
+            KEY_CREATE_INSTALLER: True
+        }
+
+        default_preset.update(DEFAULT_INNO_CONFIG)
             
         self.config['projects'][name] = {
             "path": path,
             "flavors": [],
             "envs": [],
-            "last_selected_build_preset": "Ručně",
+            "last_selected_build_preset": PRESET_MANUAL,
             "build_presets": {
-                PRESET_MANUAL: {
-                    KEY_BUILD_TYPE: "apk",
-                    KEY_BUILD_MODE: "release",
-                    KEY_FLAVOR: "",
-                    KEY_ENV: "",
-                    KEY_BUMP_STRATEGY: BUMP_PATCH, # Zde jsi měl BUMP_PATCH, tak to nechávám
-                    KEY_GIT_PUSH: True,
-                    KEY_DISABLE_OBFUSCATION: False,
-                    KEY_UPLOAD_SYMBOLS: True,
-                    KEY_INSTALL_COCOAPODS: True,
-                    KEY_CHECK_SQLITE_WEB: False
-                }
+                PRESET_MANUAL: default_preset
             },
             "nbsp_settings": {
                 KEY_TRANSLATIONS_PATH: "assets/translations"
@@ -181,7 +186,7 @@ class ConfigManager:
     def get_project_build_presets(self, project_name):
         """
         Vrátí slovník všech build presetů pro daný projekt.
-        Vždy zajistí přítomnost klíče PRESET_MANUAL ('Ručně').
+        PROVÁDÍ AUTOMATICKOU MIGRACI chybějících klíčů a OPRAVU poškozených dat.
         """
         project_data = self._get_project(project_name)
         default_presets = {PRESET_MANUAL: {}}
@@ -191,22 +196,63 @@ class ConfigManager:
 
         presets = project_data.get('build_presets', default_presets)
         
-        # 1. Pojistka proti špatnému typu
+        # 1. Kontrola, zda je 'presets' slovník
         if not isinstance(presets, dict):
-            print(f"OPRAVA: 'build_presets' pro '{project_name}' byl poškozen. Resetuji na výchozí.")
             project_data['build_presets'] = default_presets
             self.save_config()
             return default_presets
+
+        # --- MIGRACE A OPRAVA DAT ---
+        migration_needed = False
+        
+        # Použijeme list(presets.keys()) abychom mohli bezpečně modifikovat slovník
+        for preset_name in list(presets.keys()):
+            settings = presets[preset_name]
             
-        # 2. Pojistka: VŽDY zajistit existenci "Ručně"
-        # I když je v configu smazaný nebo prázdný, v paměti (a pro UI) ho chceme vidět.
-        if PRESET_MANUAL not in presets:
-            presets[PRESET_MANUAL] = {}
-            # Volitelně můžeme rovnou uložit opravu do souboru:
-            # self.save_project_build_preset(project_name, PRESET_MANUAL, {})
+            # --- OPRAVA CHYBY (TUPLE) ---
+            # Pokud hodnota není slovník (např. je to tuple, list nebo string), opravíme ji
+            if not isinstance(settings, dict):
+                print(f"OPRAVA: Preset '{preset_name}' byl poškozen (typ {type(settings)}). Resetuji.")
+                
+                # Vytvoříme nový čistý slovník
+                new_settings = {
+                    KEY_BUILD_TYPE: "apk",
+                    KEY_BUILD_MODE: "release",
+                    KEY_FLAVOR: "",
+                    KEY_ENV: "",
+                    KEY_BUMP_STRATEGY: BUMP_PATCH,
+                    KEY_GIT_PUSH: True,
+                    KEY_DISABLE_OBFUSCATION: False,
+                    KEY_UPLOAD_SYMBOLS: True,
+                    KEY_INSTALL_COCOAPODS: True,
+                    KEY_CHECK_SQLITE_WEB: False,
+                    KEY_CREATE_INSTALLER: False
+                }
+                new_settings.update(DEFAULT_INNO_CONFIG)
+                
+                # Nahradíme poškozená data novým slovníkem
+                presets[preset_name] = new_settings
+                settings = new_settings # Aktualizujeme lokální proměnnou pro další kontroly
+                migration_needed = True
+            # -----------------------------
+
+            # 1. Klíč pro zapnutí instalátoru
+            if KEY_CREATE_INSTALLER not in settings:
+                settings[KEY_CREATE_INSTALLER] = False
+                migration_needed = True
+            
+            # 2. Klíče pro konfiguraci Inno Setupu
+            for key, default_val in DEFAULT_INNO_CONFIG.items():
+                if key not in settings:
+                    settings[key] = default_val
+                    migration_needed = True
+        
+        if migration_needed:
+            print(f"MIGRACE: Doplněny/Opraveny klíče pro projekt '{project_name}'.")
+            self.save_config()
+        # -------------------------------------------
             
         return presets
-    # --- KONEC OPRAVENÉ METODY ---
 
     def save_project_build_preset(self, project_name, preset_name, settings):
         """Uloží nebo přepíše nastavení pro jeden build preset v rámci projektu."""

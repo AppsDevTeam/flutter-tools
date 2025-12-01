@@ -97,5 +97,27 @@ else
     elif [[ "$OS_TYPE" == "windows" ]]; then
         echo -e "   Windows: Při instalaci Pythonu zaškrtněte 'tcl/tk and IDLE'."
     fi
+fi
+
+# --- 6. Kontrola Inno Setup (jen Windows) ---
+if [[ "$OS_TYPE" == "windows" ]]; then
+    echo -n "Kontrola Inno Setup (pro instalátor)... "
+    # Hledáme ISCC.exe v PATH nebo v typických složkách
+    ISCC_PATH=$(which iscc 2>/dev/null)
+    if [[ -z "$ISCC_PATH" ]]; then
+        if [[ -f "/c/Program Files (x86)/Inno Setup 6/ISCC.exe" ]]; then
+            ISCC_PATH="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
+        elif [[ -f "/c/Program Files/Inno Setup 6/ISCC.exe" ]]; then
+            ISCC_PATH="/c/Program Files/Inno Setup 6/ISCC.exe"
+        fi
+    fi
+
+    if [[ -n "$ISCC_PATH" ]]; then
+        echo -e "${GREEN}OK${NC}"
+    else
+        echo -e "${YELLOW}NENALEZENO${NC}"
+        echo -e "   -> Pro vytváření instalátorů nainstalujte Inno Setup: https://jrsoftware.org/isdl.php"
+    fi
+fi
 
 exit 0

@@ -48,7 +48,6 @@ KEY_DISABLE_OBFUSCATION = "disable_obfuscation"
 KEY_UPLOAD_SYMBOLS = "upload_symbols"
 KEY_INSTALL_COCOAPODS = "install_cocoapods"
 KEY_CHECK_SQLITE_WEB = "check_sqlite_web"
-
 KEY_BUMP_STRATEGY = "bump_strategy" 
 
 # Klíče pro jednotlivé strategie
@@ -57,3 +56,32 @@ BUMP_MAJOR = "major"
 BUMP_MINOR = "minor"
 BUMP_PATCH = "patch"
 BUMP_BUILD = "build"
+
+# --- NOVÉ KONSTANTY PRO INNO SETUP ---
+KEY_CREATE_INSTALLER = "create_installer"
+
+# Klíče parametrů
+KEY_INNO_PUBLISHER = "inno_publisher"
+KEY_INNO_URL = "inno_url"
+KEY_INNO_LICENSE = "inno_license"
+KEY_INNO_WIZARD_IMAGE = "inno_wizard_image"
+KEY_INNO_WIZARD_SMALL_IMAGE = "inno_wizard_small_image"
+KEY_INNO_WIZARD_STYLE = "inno_wizard_style"
+KEY_INNO_COMPRESSION = "inno_compression"
+KEY_INNO_TASK_DESKTOP = "inno_task_desktop"
+KEY_INNO_LANGUAGES = "inno_languages"
+KEY_INNO_ICON = "inno_icon"
+
+# Defaultní hodnoty (pro migraci a nové projekty)
+DEFAULT_INNO_CONFIG = {
+    KEY_INNO_PUBLISHER: "My Company",
+    KEY_INNO_URL: "",
+    KEY_INNO_LICENSE: "",
+    KEY_INNO_WIZARD_IMAGE: "",
+    KEY_INNO_WIZARD_SMALL_IMAGE: "",
+    KEY_INNO_WIZARD_STYLE: "modern",
+    KEY_INNO_COMPRESSION: "lzma",
+    KEY_INNO_TASK_DESKTOP: True,
+    KEY_INNO_LANGUAGES: "english, czech",
+    KEY_INNO_ICON: "windows/runner/resources/app_icon.ico"
+}

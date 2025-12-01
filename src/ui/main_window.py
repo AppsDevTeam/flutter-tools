@@ -18,7 +18,12 @@ from ..constants import (
     KEY_FLAVOR, KEY_ENV, KEY_BUMP_STRATEGY, BUMP_NONE, BUMP_MAJOR, 
     BUMP_MINOR, BUMP_PATCH, BUMP_BUILD, KEY_GIT_PUSH, 
     KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS, KEY_INSTALL_COCOAPODS,
-    KEY_CHECK_SQLITE_WEB
+    KEY_CHECK_SQLITE_WEB, KEY_CREATE_INSTALLER,
+    KEY_INNO_PUBLISHER, KEY_INNO_URL, KEY_INNO_LICENSE,
+    KEY_INNO_WIZARD_IMAGE, KEY_INNO_WIZARD_SMALL_IMAGE,
+    KEY_INNO_WIZARD_STYLE, KEY_INNO_COMPRESSION,
+    KEY_INNO_TASK_DESKTOP, KEY_INNO_LANGUAGES, KEY_INNO_ICON,
+    DEFAULT_INNO_CONFIG
 )
 
 class MainWindow(tk.Toplevel):
@@ -36,7 +41,7 @@ class MainWindow(tk.Toplevel):
 
         self._switch_to_project(current_project_name)
 
-        self._is_loading_preset = False # Vlajka, která brání ukládání během načítání
+        self._is_loading_preset = True # Vlajka, která brání ukládání během načítání
 
         # --- ZMĚNA: Oddělené proměnné ---
         self.build_vars = {} 
@@ -210,16 +215,26 @@ class MainWindow(tk.Toplevel):
                 value=manual_settings.get(KEY_CHECK_SQLITE_WEB, False)
             ),
         }
+
+        # Inicializace proměnných pro Inno Setup (s defaulty z konstant)
+        self.build_vars.update({
+            KEY_CREATE_INSTALLER: tk.BooleanVar(value=True),
+            
+            KEY_INNO_PUBLISHER: tk.StringVar(value=DEFAULT_INNO_CONFIG[KEY_INNO_PUBLISHER]),
+            KEY_INNO_URL: tk.StringVar(value=DEFAULT_INNO_CONFIG[KEY_INNO_URL]),
+            KEY_INNO_LICENSE: tk.StringVar(value=DEFAULT_INNO_CONFIG[KEY_INNO_LICENSE]),
+            KEY_INNO_WIZARD_IMAGE: tk.StringVar(value=DEFAULT_INNO_CONFIG[KEY_INNO_WIZARD_IMAGE]),
+            KEY_INNO_WIZARD_SMALL_IMAGE: tk.StringVar(value=DEFAULT_INNO_CONFIG[KEY_INNO_WIZARD_SMALL_IMAGE]),
+            KEY_INNO_WIZARD_STYLE: tk.StringVar(value=DEFAULT_INNO_CONFIG[KEY_INNO_WIZARD_STYLE]),
+            KEY_INNO_COMPRESSION: tk.StringVar(value=DEFAULT_INNO_CONFIG[KEY_INNO_COMPRESSION]),
+            KEY_INNO_TASK_DESKTOP: tk.BooleanVar(value=DEFAULT_INNO_CONFIG[KEY_INNO_TASK_DESKTOP]),
+            KEY_INNO_LANGUAGES: tk.StringVar(value=DEFAULT_INNO_CONFIG[KEY_INNO_LANGUAGES]),
+            KEY_INNO_ICON: tk.StringVar(value=DEFAULT_INNO_CONFIG[KEY_INNO_ICON]),
+        })
         
         # 3. Až teď zapneme sledování změn (trace)
         for key, var in self.build_vars.items():
-            if key == KEY_PRESET:
-                continue
-            # Sledování strategie povýšení (ta se ukládá přes bind, ale pro jistotu ji necháme netracovanou nebo tracovanou,
-            # zde raději netracujeme, protože dropdown má svůj bind)
-            if key == KEY_BUMP_STRATEGY:
-                continue
-                
+            if key == KEY_PRESET or key == KEY_BUMP_STRATEGY: continue
             var.trace_add("write", self._save_current_build_settings)
 
     def _create_checkbox(self, parent, text, var_key, **pack_kwargs):
@@ -309,15 +324,61 @@ class MainWindow(tk.Toplevel):
             KEY_UPLOAD_SYMBOLS, 
             padx=(20, 0)
         )
-        
+
         self.web_frame = ttk.LabelFrame(frame, text="Web", padding=5)
         self.web_frame.grid(row=8, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
+        
         self.web_check = self._create_checkbox(
             self.web_frame, 
             "Zkontrolovat sqlite3.wasm & sqflite_sw.js", 
             KEY_CHECK_SQLITE_WEB
         )
+
+        # --- SEKCE WINDOWS INSTALLER ---
+        self.windows_frame = ttk.LabelFrame(frame, text="Windows", padding=5)
+        self.windows_frame.grid(row=8, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
         
+        self.installer_check = self._create_checkbox(
+            self.windows_frame, "Vytvořit instalátor (Inno Setup)", KEY_CREATE_INSTALLER
+        )
+
+        # Frame pro detailní nastavení (bude se schovávat)
+        self.inno_settings_frame = ttk.Frame(self.windows_frame)
+        self.inno_settings_frame.pack(fill="x", expand=True, padx=10, pady=5)
+        
+        # Grid layout pro nastavení
+        f = self.inno_settings_frame
+        f.columnconfigure(1, weight=1)
+        f.columnconfigure(4, weight=1)
+
+        # 1. Sloupec
+        self._create_entry_row(f, 0, "Publisher:", KEY_INNO_PUBLISHER)
+        self._create_entry_row(f, 1, "URL:", KEY_INNO_URL)
+        self._create_file_row(f, 2, "Licence (.txt):", KEY_INNO_LICENSE, [("Text files", "*.txt")])
+        self._create_file_row(f, 3, "Ikona (.ico):", KEY_INNO_ICON, [("Icon files", "*.ico")])
+        
+        # 2. Sloupec (vedle) - Styl a Obrázky
+        ttk.Label(f, text="Styl:").grid(row=0, column=3, sticky="w", padx=(20, 5))
+        ttk.Combobox(f, textvariable=self.build_vars[KEY_INNO_WIZARD_STYLE], 
+                     values=["modern", "classic"], state="readonly").grid(row=0, column=4, sticky="ew")
+
+        ttk.Label(f, text="Komprese:").grid(row=1, column=3, sticky="w", padx=(20, 5))
+        ttk.Combobox(f, textvariable=self.build_vars[KEY_INNO_COMPRESSION], 
+                     values=["lzma", "zip", "bzip"], state="readonly").grid(row=1, column=4, sticky="ew")
+
+        self._create_file_row(f, 2, "Velký obrázek:", KEY_INNO_WIZARD_IMAGE, [("Images", "*.bmp")], col_offset=3)
+        self._create_file_row(f, 3, "Malý obrázek:", KEY_INNO_WIZARD_SMALL_IMAGE, [("Images", "*.bmp")], col_offset=3)
+        
+        # Spodní sekce (Jazyky a Checkboxy)
+        ttk.Label(f, text="Jazyky (oddělené čárkou):").grid(row=4, column=0, sticky="w", pady=(10,0))
+        ttk.Entry(f, textvariable=self.build_vars[KEY_INNO_LANGUAGES]).grid(row=4, column=1, columnspan=4, sticky="ew", pady=(10,0))
+        
+        ttk.Checkbutton(
+            f, 
+            text="Vytvořit zástupce na ploše", 
+            variable=self.build_vars[KEY_INNO_TASK_DESKTOP],
+            command=self._save_current_build_settings
+        ).grid(row=5, column=0, columnspan=5, sticky="w", pady=(5,0))
         frame.grid_rowconfigure(9, weight=1, minsize=150)
         self.build_console = scrolledtext.ScrolledText(frame, wrap=tk.WORD, state="disabled")
         self.build_console.grid(row=9, column=0, columnspan=3, sticky="nsew", pady=(5, 10))
@@ -451,6 +512,30 @@ class MainWindow(tk.Toplevel):
                 self._update_dynamic_list(combobox, list_name)
                 combobox.set("")
 
+    def _create_entry_row(self, parent, row, label, var_key, col_offset=0):
+        ttk.Label(parent, text=label).grid(row=row, column=0+col_offset, sticky="w", padx=5, pady=2)
+        ttk.Entry(parent, textvariable=self.build_vars[var_key]).grid(row=row, column=1+col_offset, sticky="ew", padx=5, pady=2)
+
+    def _create_file_row(self, parent, row, label, var_key, file_types, col_offset=0):
+        ttk.Label(parent, text=label).grid(row=row, column=0+col_offset, sticky="w", padx=5, pady=2)
+        
+        frame = ttk.Frame(parent)
+        frame.grid(row=row, column=1+col_offset, sticky="ew", padx=5, pady=2)
+        frame.columnconfigure(0, weight=1)
+        
+        ttk.Entry(frame, textvariable=self.build_vars[var_key]).grid(row=0, column=0, sticky="ew")
+        ttk.Button(frame, text="...", width=3, 
+                   command=lambda: self._browse_file(var_key, file_types)).grid(row=0, column=1, padx=(5,0))
+
+    def _browse_file(self, var_key, file_types):
+        path = filedialog.askopenfilename(filetypes=file_types, initialdir=os.getcwd())
+        if path:
+            try:
+                rel_path = os.path.relpath(path, os.getcwd())
+                self.build_vars[var_key].set(rel_path)
+            except ValueError:
+                self.build_vars[var_key].set(path)
+
     def _update_build_ui_state(self, *args):
         try:
             build_type = self.build_vars[KEY_BUILD_TYPE].get()
@@ -477,10 +562,18 @@ class MainWindow(tk.Toplevel):
 
             # Logika pro Web
             if build_type == "web":
-                self.web_frame.grid() 
-            else:
-                self.web_frame.grid_remove() 
+                self.web_frame.grid()
+                self.windows_frame.grid_remove() # Skrýt Windows
+                self.build_vars[KEY_CREATE_INSTALLER].set(False)
+            elif build_type == "windows":
+                self.web_frame.grid_remove()
+                self.windows_frame.grid() # Zobrazit Windows
                 self.build_vars[KEY_CHECK_SQLITE_WEB].set(False)
+            else:
+                self.web_frame.grid_remove()
+                self.windows_frame.grid_remove()
+                self.build_vars[KEY_CHECK_SQLITE_WEB].set(False)
+                self.build_vars[KEY_CREATE_INSTALLER].set(False)
                 
         except (AttributeError, tk.TclError):
             pass
