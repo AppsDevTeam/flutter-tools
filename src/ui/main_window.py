@@ -248,9 +248,15 @@ class MainWindow(tk.Toplevel):
         # ... (preset, separator, build type, build mode, flavor, env) ...
         # (Řádky 0-5 zůstávají stejné)
         ttk.Label(frame, text="Rychlá volba:").grid(row=0, column=0, sticky="w", padx=5, pady=5)
-        self.preset_selector = ttk.Combobox(frame, textvariable=self.build_vars[KEY_PRESET], state="readonly")
+        self.preset_selector = ttk.Combobox(
+            frame, 
+            textvariable=self.build_vars[KEY_PRESET], 
+            state="readonly",
+            postcommand=self._update_preset_list
+        )
         self.preset_selector.grid(row=0, column=1, sticky="ew", padx=5, pady=5)
         self.preset_selector.bind("<<ComboboxSelected>>", self._on_preset_selected)
+        
         preset_btn_frame = ttk.Frame(frame)
         preset_btn_frame.grid(row=0, column=2, sticky="w")
         ttk.Button(preset_btn_frame, text="+", width=3, command=self._add_preset).pack(side="left", padx=(0, 5))
@@ -570,9 +576,28 @@ class MainWindow(tk.Toplevel):
         self.config_manager.save_last_build_preset_name(self.current_project_name, preset_name)
 
     def _update_preset_list(self):
-        """Aktualizuje seznam v dropdownu presetů."""
-        presets = list(self.config_manager.get_project_build_presets(self.current_project_name).keys())
-        self.preset_selector['values'] = presets
+        """
+        Aktualizuje seznam v dropdownu presetů.
+        Zajistí, že 'Ručně' je vždy první a zbytek je abecedně.
+        """
+        presets_dict = self.config_manager.get_project_build_presets(self.current_project_name)
+        
+        # Získáme všechny klíče
+        all_keys = list(presets_dict.keys())
+        
+        # 1. Vyfiltrujeme vše kromě "Ručně" a seřadíme abecedně
+        other_presets = sorted([k for k in all_keys if k != PRESET_MANUAL])
+        
+        # 2. Sestavíme finální seznam: ["Ručně"] + [zbytek]
+        # Tím máme 100% jistotu, že "Ručně" je tam právě jednou a na začátku
+        final_presets = [PRESET_MANUAL] + other_presets
+        
+        # 3. Nastavíme hodnoty do dropdownu
+        if self.preset_selector:
+            self.preset_selector['values'] = final_presets
+            # Pokud aktuálně vybraná hodnota v seznamu není (např. po smazání), resetujeme na Ručně
+            if self.preset_selector.get() not in final_presets:
+                self.preset_selector.set(PRESET_MANUAL)
         
     def _add_preset(self):
         """Uloží aktuální nastavení jako nový preset."""

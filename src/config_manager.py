@@ -181,7 +181,7 @@ class ConfigManager:
     def get_project_build_presets(self, project_name):
         """
         Vrátí slovník všech build presetů pro daný projekt.
-        Opraví data, pokud jsou poškozená (např. string).
+        Vždy zajistí přítomnost klíče PRESET_MANUAL ('Ručně').
         """
         project_data = self._get_project(project_name)
         default_presets = {PRESET_MANUAL: {}}
@@ -191,13 +191,19 @@ class ConfigManager:
 
         presets = project_data.get('build_presets', default_presets)
         
-        # Pojistka: Pokud je 'presets' string (což způsobovalo chybu), 
-        # okamžitě ho opravíme a vrátíme výchozí hodnotu.
+        # 1. Pojistka proti špatnému typu
         if not isinstance(presets, dict):
             print(f"OPRAVA: 'build_presets' pro '{project_name}' byl poškozen. Resetuji na výchozí.")
             project_data['build_presets'] = default_presets
-            self.save_config() # Uložíme opravu
+            self.save_config()
             return default_presets
+            
+        # 2. Pojistka: VŽDY zajistit existenci "Ručně"
+        # I když je v configu smazaný nebo prázdný, v paměti (a pro UI) ho chceme vidět.
+        if PRESET_MANUAL not in presets:
+            presets[PRESET_MANUAL] = {}
+            # Volitelně můžeme rovnou uložit opravu do souboru:
+            # self.save_project_build_preset(project_name, PRESET_MANUAL, {})
             
         return presets
     # --- KONEC OPRAVENÉ METODY ---
