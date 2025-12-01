@@ -95,11 +95,17 @@ class MainWindow(tk.Toplevel):
         top_frame = ttk.Frame(self, padding=(10, 10, 10, 0))
         top_frame.pack(fill='x')
         ttk.Label(top_frame, text="Aktuální projekt:").pack(side='left')
+        
         self.project_selector = ttk.Combobox(top_frame, state='readonly')
         self.project_selector.pack(side='left', expand=True, fill='x', padx=5)
         self.project_selector.bind("<<ComboboxSelected>>", self.on_project_switch)
+        
         command = lambda: self.master.open_add_project_dialog(parent_window=self)
         ttk.Button(top_frame, text="+", width=3, command=command).pack(side='left')
+
+        self.edit_btn = ttk.Button(top_frame, text="✎", width=3, command=self._show_project_options_menu)
+        self.edit_btn.pack(side='left', padx=(5, 0))
+
         self.update_project_selector()
         
         self.notebook = ttk.Notebook(self)
@@ -158,27 +164,62 @@ class MainWindow(tk.Toplevel):
         return frame
 
     def _initialize_build_vars(self):
-        """Inicializuje všechny Tkinter proměnné POUZE pro záložku Build."""
+        """
+        Inicializuje všechny Tkinter proměnné PRO ZÁLOŽKU BUILD.
+        Hodnoty rovnou načítá z uloženého presetu 'Ručně', aby se nepřepsaly výchozími.
+        """
+        # 1. Načteme uložené hodnoty pro 'Ručně'
+        presets = self.config_manager.get_project_build_presets(self.current_project_name)
+        manual_settings = presets.get(PRESET_MANUAL, {})
+
+        # 2. Inicializujeme proměnné s uloženými hodnotami (nebo defaulty, pokud nic není uloženo)
         self.build_vars = {
-            KEY_PRESET: tk.StringVar(value=PRESET_MANUAL),
-            KEY_BUILD_TYPE: tk.StringVar(value="apk"),
-            KEY_BUILD_MODE: tk.StringVar(value="release"),
-            KEY_FLAVOR: tk.StringVar(),
-            KEY_ENV: tk.StringVar(),
-            KEY_BUMP_STRATEGY: tk.StringVar(value=BUMP_PATCH),
-            KEY_GIT_PUSH: tk.BooleanVar(value=True),
-            KEY_DISABLE_OBFUSCATION: tk.BooleanVar(value=False),
-            KEY_UPLOAD_SYMBOLS: tk.BooleanVar(value=True),
-            KEY_INSTALL_COCOAPODS: tk.BooleanVar(value=True),
-            KEY_CHECK_SQLITE_WEB: tk.BooleanVar(value=False),
+            KEY_PRESET: tk.StringVar(
+                value=self.config_manager.get_last_build_preset_name(self.current_project_name)
+            ),
+            
+            KEY_BUILD_TYPE: tk.StringVar(
+                value=manual_settings.get(KEY_BUILD_TYPE, "apk")
+            ),
+            KEY_BUILD_MODE: tk.StringVar(
+                value=manual_settings.get(KEY_BUILD_MODE, "release")
+            ),
+            KEY_FLAVOR: tk.StringVar(
+                value=manual_settings.get(KEY_FLAVOR, "")
+            ),
+            KEY_ENV: tk.StringVar(
+                value=manual_settings.get(KEY_ENV, "")
+            ),
+            KEY_BUMP_STRATEGY: tk.StringVar(
+                value=manual_settings.get(KEY_BUMP_STRATEGY, BUMP_BUILD)
+            ),
+            
+            KEY_GIT_PUSH: tk.BooleanVar(
+                value=manual_settings.get(KEY_GIT_PUSH, True)
+            ),
+            KEY_DISABLE_OBFUSCATION: tk.BooleanVar(
+                value=manual_settings.get(KEY_DISABLE_OBFUSCATION, False)
+            ),
+            KEY_UPLOAD_SYMBOLS: tk.BooleanVar(
+                value=manual_settings.get(KEY_UPLOAD_SYMBOLS, True)
+            ),
+            KEY_INSTALL_COCOAPODS: tk.BooleanVar(
+                value=manual_settings.get(KEY_INSTALL_COCOAPODS, True)
+            ),
+            KEY_CHECK_SQLITE_WEB: tk.BooleanVar(
+                value=manual_settings.get(KEY_CHECK_SQLITE_WEB, False)
+            ),
         }
         
-        # Propojení na ukládání při každé změně
+        # 3. Až teď zapneme sledování změn (trace)
         for key, var in self.build_vars.items():
-            # Změna samotného presetu nemá spouštět ukládání!
             if key == KEY_PRESET:
                 continue
-            
+            # Sledování strategie povýšení (ta se ukládá přes bind, ale pro jistotu ji necháme netracovanou nebo tracovanou,
+            # zde raději netracujeme, protože dropdown má svůj bind)
+            if key == KEY_BUMP_STRATEGY:
+                continue
+                
             var.trace_add("write", self._save_current_build_settings)
 
     def _create_checkbox(self, parent, text, var_key, **pack_kwargs):
@@ -267,7 +308,7 @@ class MainWindow(tk.Toplevel):
         self.web_frame.grid(row=8, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
         self.web_check = self._create_checkbox(
             self.web_frame, 
-            "Zkontrolovat sqlite3.wasm & sqlite_sw.js", 
+            "Zkontrolovat sqlite3.wasm & sqflite_sw.js", 
             KEY_CHECK_SQLITE_WEB
         )
         
@@ -406,18 +447,59 @@ class MainWindow(tk.Toplevel):
 
     def _update_build_ui_state(self, *args):
         try:
-            if self.build_vars[KEY_DISABLE_OBFUSCATION].get():
-                self.symbols_check.config(state="disabled")
-                self.build_vars[KEY_UPLOAD_SYMBOLS].set(False)
+            build_type = self.build_vars[KEY_BUILD_TYPE].get()
+            
+            # Definice mobilních platforem, kde obfuskace dává smysl
+            is_mobile = build_type in ['apk', 'appbundle', 'ipa']
+            
+            if is_mobile:
+                # Povolíme checkbox obfuskace
+                self.obfuscate_check.config(state="normal")
+                
+                # Logika pro symboly (závisí na tom, zda je obfuskace vypnutá)
+                if self.build_vars[KEY_DISABLE_OBFUSCATION].get():
+                    self.symbols_check.config(state="disabled")
+                    self.build_vars[KEY_UPLOAD_SYMBOLS].set(False)
+                else:
+                    self.symbols_check.config(state="normal")
             else:
-                self.symbols_check.config(state="normal")
-            if self.build_vars[KEY_BUILD_TYPE].get() == "web":
+                # Pro Web a Desktop obfuskaci a symboly zakážeme
+                self.obfuscate_check.config(state="disabled")
+                self.symbols_check.config(state="disabled")
+                # Volitelně můžeme nastavit vizuálně, že je to vypnuté, 
+                # ale hodnotu v proměnné měnit nemusíme, logika to bude ignorovat.
+
+            # Logika pro Web
+            if build_type == "web":
                 self.web_frame.grid() 
             else:
                 self.web_frame.grid_remove() 
                 self.build_vars[KEY_CHECK_SQLITE_WEB].set(False)
+                
         except (AttributeError, tk.TclError):
-            pass 
+            pass
+
+    def _show_project_options_menu(self):
+        """Zobrazí kontextové menu pro úpravu aktuálního projektu."""
+        menu = tk.Menu(self, tearoff=0)
+        
+        # Lambda funkce pro volání metod v App s názvem aktuálního projektu
+        rename_cmd = lambda: self.master.on_rename_project(self.current_project_name)
+        path_cmd = lambda: self.master.on_edit_project_path(self.current_project_name)
+        delete_cmd = lambda: self.master.on_delete_project(self.current_project_name)
+        
+        menu.add_command(label="Přejmenovat projekt", command=rename_cmd)
+        menu.add_command(label="Změnit cestu", command=path_cmd)
+        menu.add_separator()
+        menu.add_command(label="Smazat projekt", command=delete_cmd, foreground="red") # foreground funguje jen na některých OS
+        
+        # Zobrazení menu pod tlačítkem
+        try:
+            x = self.edit_btn.winfo_rootx()
+            y = self.edit_btn.winfo_rooty() + self.edit_btn.winfo_height()
+            menu.tk_popup(x, y)
+        finally:
+            menu.grab_release()
             
     # --- METODY PRO PRESETY (upravené) ---
     
@@ -545,7 +627,12 @@ class MainWindow(tk.Toplevel):
         """Spustí build s aktuálním nastavením UI."""
         # Ukládání se děje automaticky přes trace
         params = self._gather_build_settings()
-        self._run_script_in_thread(run_flutter_build_logic, self.build_console, params)
+        self._run_script_in_thread(
+            run_flutter_build_logic, 
+            self.build_console, 
+            params,
+            on_complete=self._update_bump_dropdown_options
+        )
 
     # ... (metody on_project_switch, _on_tab_changed, update_project_selector, _set_ui_state,
     # ... _browse_directory, _clear_console, _run_script_in_thread, _process_queue
@@ -598,7 +685,7 @@ class MainWindow(tk.Toplevel):
         console_widget.tag_configure("error", foreground="#D50000", font=("TkDefaultFont", 9, "bold")) # Červená tučná
         console_widget.tag_configure("warn", foreground="#FFAB00") # Oranžová/Žlutá
 
-    def _run_script_in_thread(self, logic_function, console_widget, params=None):
+    def _run_script_in_thread(self, logic_function, console_widget, params=None, on_complete=None):
         """Spustí logiku v odděleném vlákně a předá jí UILogger."""
         self._clear_console(console_widget)
         self._set_ui_state(True)
@@ -620,6 +707,9 @@ class MainWindow(tk.Toplevel):
             finally:
                 # Signál o konci posíláme stále stejným způsobem
                 self.output_queue.put((None, None, None)) # Přidáno None pro tag
+
+                if on_complete:
+                    self.after(0, on_complete)
         
         threading.Thread(target=task, daemon=True).start()
 

@@ -3,6 +3,8 @@ import os
 import subprocess
 import re
 import platform
+import time
+import glob
 
 from ..constants import ADT_PROJECT_CONFIG_FILENAME
 
@@ -294,6 +296,32 @@ def open_output_folder(logger, build_type, output_dir=None):
             execute_command(['xdg-open', path_to_open], logger)
     except Exception as e:
         logger.error(f"Nepodařilo se otevřít složku: {e}")
+
+def wait_for_paths(logger, files, timeout=5):
+    """
+    Čeká, dokud soubory (dané absolutní nebo relativní cestou) neexistují.
+    """
+    logger.info(f"Čekám na soubory (timeout {timeout}s)...")
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        missing = [f for f in files if not os.path.exists(f)]
+        if not missing:
+            return True
+        time.sleep(0.5)
+    return False
+
+def wait_for_glob(logger, pattern, timeout=5):
+    """
+    Čeká, dokud glob pattern nenajde alespoň jeden soubor.
+    """
+    logger.info(f"Čekám na soubory podle vzoru '{pattern}' (timeout {timeout}s)...")
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        files = glob.glob(pattern, recursive=True)
+        if files:
+            return files # Vrátí seznam nalezených
+        time.sleep(0.5)
+    return []
 
 def get_pubspec_name(logger):
     """

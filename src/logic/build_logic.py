@@ -133,7 +133,9 @@ def run_flutter_build_logic(params, logger):
     # build_command.extend([f'--build-name={version_name}', f'--build-number={build_number}'])
     
     # 5.4 Logika pro Symboly a Obfuskaci (Dynamická cesta)
-    if not params.get(KEY_DISABLE_OBFUSCATION, False):
+    is_mobile = build_type in ['apk', 'appbundle', 'ipa']
+
+    if is_mobile and not params.get(KEY_DISABLE_OBFUSCATION, False):
         build_command.append('--obfuscate')
         
         # Výpočet cesty k symbolům (crashlytics/...)
@@ -156,6 +158,8 @@ def run_flutter_build_logic(params, logger):
                 logger.warn(f"Nepodařilo se vytvořit složku pro symboly: {e}")
 
         build_command.append(f'--split-debug-info={symbols_dir}')
+        params["_symbols_dir"] = symbols_dir
+
         logger.info(f"Symboly budou uloženy do: {symbols_dir}")
     
     build_command.extend(dart_defines)

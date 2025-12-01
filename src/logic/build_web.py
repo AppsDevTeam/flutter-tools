@@ -2,12 +2,13 @@
 import os
 import shutil
 import re
+import json
 import subprocess
 import time
 import webbrowser
 from tkinter import messagebox
 
-from .build_common import get_package_name, execute_command
+from .build_common import get_package_name, execute_command, wait_for_paths
 from ..constants import KEY_FLAVOR, KEY_ENV, KEY_BUILD_MODE, KEY_CHECK_SQLITE_WEB
 
 def run_web_tasks_pre_build(logger):
@@ -24,8 +25,10 @@ def run_web_tasks_pre_build(logger):
             logger.warn(f"Nepodařilo se smazat '{web_build_dir}': {e}")
     return True
 
-# ... (funkce _add_version_query_to_assets, _verify_manifest, _verify_version_json zůstávají stejné) ...
 def _add_version_query_to_assets(logger, build_number):
+    """
+    Implementace funkce add_version_query_to_assets přesně podle Bash skriptu.
+    """
     index_path = os.path.join('build', 'web', 'index.html')
     backup_path = index_path + ".bak"
     version_param = f"?v={build_number}"
@@ -73,6 +76,7 @@ def _add_version_query_to_assets(logger, build_number):
                 logger.error(f"Kritická chyba: Nepodařilo se obnovit zálohu! {restore_error}")
 
 def _verify_manifest(logger):
+    """Ověří existenci a neprázdnost manifest.json."""
     manifest_path = os.path.join('build', 'web', 'manifest.json')
     if not os.path.exists(manifest_path) or os.path.getsize(manifest_path) == 0:
         logger.error("Chyba: manifest.json chybí nebo je prázdný!")
@@ -81,6 +85,7 @@ def _verify_manifest(logger):
     return True
 
 def _verify_version_json(logger, expected_version):
+    """Ověří, zda version.json existuje a odpovídá verzi."""
     version_file_path = os.path.join('build', 'web', 'version.json')
     if os.path.exists(version_file_path):
         try:
@@ -99,6 +104,9 @@ def _verify_version_json(logger, expected_version):
         logger.warn("version.json nebyl nalezen (přeskočeno).")
 
 def _prompt_web_verification(logger):
+    """
+    Spustí lokální server, otevře prohlížeč a zeptá se uživatele.
+    """
     web_dir = os.path.join('build', 'web')
     if not os.path.isdir(web_dir):
         logger.error(f"Složka {web_dir} neexistuje, nelze spustit server.")
@@ -139,14 +147,13 @@ def _prompt_web_verification(logger):
             except Exception as e:
                 logger.warn(f"Problém při ukončování serveru: {e}")
 
-# --- NOVÁ FUNKCE: Git Add Force ---
 def _stage_web_build_to_git(logger):
     """Přidá build/web do gitu (vynuceně, protože je v .gitignore)."""
     logger.info("Přidávám web build do git (git add -f build/web)...")
-    # Zde nepoužíváme return code pro ukončení, protože i když to selže, archivaci chceme
     execute_command(['git', 'add', '-f', 'build/web'], logger)
 
 def _archive_web_build(logger, params, env_vars):
+    """Zabalí složku build/web do ZIP archivu."""
     logger.header("--- Balím Web Build do ZIP ---")
     package_name = get_package_name(logger, env_vars)
     if not package_name: return None
@@ -171,7 +178,6 @@ def _archive_web_build(logger, params, env_vars):
         logger.error(f"Chyba při balení webu: {e}")
         return None
 
-# --- ZMĚNA: Přidána restore_web_build_from_git (z minula) ---
 def restore_web_build_from_git(logger):
     logger.warn("Obnovuji build/web do původního stavu z Gitu...")
     ret_code, _ = execute_command(['git', 'ls-files', '--error-unmatch', 'build/web'], logger, log_stdout=False)
@@ -186,16 +192,28 @@ def run_web_tasks_post_build(logger, params, env_vars, actions_performed):
     """Kompletní sada úloh po buildu webu."""
     logger.header("--- Kontrola a úprava Web Buildu ---")
 
+    # 1. Ověřit manifest.json
+    # Přidána malá prodleva pro souborový systém
+    if not wait_for_paths(logger, [os.path.join('build', 'web', 'manifest.json')], timeout=3):
+        logger.error("Timeout: manifest.json nebyl nalezen ani po čekání.")
+        return None
+        
     if not _verify_manifest(logger): return None 
 
+    # 2. Zkontrolovat SQLite
     if params.get(KEY_CHECK_SQLITE_WEB, False):
+        logger.info("Kontroluji SQLite soubory (čekám max 5s)...")
         wasm_path = os.path.join('build', 'web', 'sqlite3.wasm')
-        sw_path = os.path.join('build', 'web', 'sqlite_sw.js')
-        if os.path.exists(wasm_path) and os.path.exists(sw_path):
-            logger.success("sqlite3.wasm a sqlite_sw.js nalezeny.")
+        sw_path = os.path.join('build', 'web', 'sqflite_sw.js')
+        
+        # --- ZMĚNA: Používáme retry logiku ---
+        files_ok = wait_for_paths(logger, [wasm_path, sw_path], timeout=5)
+        
+        if files_ok:
+            logger.success("sqlite3.wasm a sqflite_sw.js nalezeny.")
             actions_performed["web_check"] = True
         else:
-            logger.error("Chybí sqlite3.wasm nebo sqlite_sw.js!")
+            logger.error("Chybí sqlite3.wasm nebo sqflite_sw.js!")
             if not messagebox.askyesno("Chyba SQLite", "Chybí SQLite soubory! Chcete přesto pokračovat?", icon='warning'):
                 return None
 
@@ -211,10 +229,8 @@ def run_web_tasks_post_build(logger, params, env_vars, actions_performed):
         return None
 
     logger.success("Verifikace OK.")
-    
-    # --- ZMĚNA: Přidání do Gitu před archivací ---
     _stage_web_build_to_git(logger)
-    actions_performed["web_added"] = True # Značka pro commit message
+    actions_performed["web_added"] = True
 
     output_dir = _archive_web_build(logger, params, env_vars)
             

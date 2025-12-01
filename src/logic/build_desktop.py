@@ -5,7 +5,7 @@ import shutil
 import tarfile
 import zipfile
 
-from .build_common import get_pubspec_name, execute_command
+from .build_common import get_pubspec_name, execute_command, wait_for_glob, wait_for_paths
 from ..constants import KEY_GIT_PUSH
 
 def _get_desktop_app_name(env_vars):
@@ -52,7 +52,8 @@ def run_desktop_tasks_post_build(logger, params, env_vars, actions_performed):
              logger.error(f"Složka {build_path} neexistuje.")
              return None
 
-        candidates = glob.glob(os.path.join(build_path, "*.app"))
+        candidates = wait_for_glob(logger, os.path.join(build_path, "*.app"))
+
         if candidates:
             app_bundle = candidates[0]
             new_app_path = os.path.join(build_path, f"{app_name}.app")
@@ -93,7 +94,8 @@ def run_desktop_tasks_post_build(logger, params, env_vars, actions_performed):
         build_path = f"build/linux/x64/{mode.lower()}/bundle"
         if not os.path.exists(build_path):
              search_glob = f"build/linux/*/{mode.lower()}/bundle"
-             found = glob.glob(search_glob)
+             found = wait_for_glob(logger, search_glob)
+
              if found: build_path = found[0]
              else:
                  logger.error(f"Složka {build_path} neexistuje.")
@@ -104,7 +106,7 @@ def run_desktop_tasks_post_build(logger, params, env_vars, actions_performed):
         
         exec_file = os.path.join(build_path, pubspec_name)
         
-        if os.path.exists(exec_file):
+        if wait_for_paths(logger, [exec_file]):
             new_exec_path = os.path.join(build_path, app_name)
             try:
                 shutil.move(exec_file, new_exec_path)
@@ -139,11 +141,11 @@ def run_desktop_tasks_post_build(logger, params, env_vars, actions_performed):
         build_path = f"build/windows/x64/runner/{mode.capitalize()}"
         if not os.path.exists(build_path):
              search_glob = f"build/windows/*/*/runner/{mode.capitalize()}"
-             found = glob.glob(search_glob)
+             found = wait_for_glob(logger,search_glob)
              if found: build_path = found[0]
              else:
                  search_glob_lower = f"build/windows/*/*/runner/{mode.lower()}"
-                 found_lower = glob.glob(search_glob_lower)
+                 found_lower = wait_for_glob(logger,search_glob_lower)
                  if found_lower: build_path = found_lower[0]
                  else:
                      logger.error(f"Složka {build_path} neexistuje.")
@@ -161,7 +163,7 @@ def run_desktop_tasks_post_build(logger, params, env_vars, actions_performed):
                 logger.success(f"Windows executable přejmenován na: {new_exe_path}")
                 
                 data_dir = os.path.join(build_path, "data")
-                if not os.path.isdir(data_dir):
+                if not wait_for_paths(logger, [data_dir]):
                     logger.error(f"❌ Složka 'data/' nebyla nalezena v {build_path} – build bude nefunkční!")
                     return None
                 

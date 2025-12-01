@@ -72,6 +72,35 @@ class ConfigManager:
         }
         self.save_config()
 
+    def rename_project(self, old_name, new_name):
+        """Přejmenuje projekt (změní klíč v dict)."""
+        projects = self.config.get('projects', {})
+        
+        if old_name not in projects:
+            return False
+        if new_name in projects:
+            return False # Nové jméno už existuje
+            
+        # Převedeme data pod nový klíč
+        project_data = projects.pop(old_name)
+        projects[new_name] = project_data
+        
+        # Pokud byl tento projekt poslední otevřený, aktualizujeme i odkaz
+        if self.config.get('last_project') == old_name:
+            self.config['last_project'] = new_name
+            
+        self.save_config()
+        return True
+
+    def update_project_path(self, name, new_path):
+        """Aktualizuje cestu k projektu."""
+        project_data = self._get_project(name)
+        if project_data:
+            project_data['path'] = new_path
+            self.save_config()
+            return True
+        return False
+
     def delete_project(self, name):
         """Smaže projekt z konfigurace."""
         if name in self.config['projects']:

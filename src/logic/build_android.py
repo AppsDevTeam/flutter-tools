@@ -120,18 +120,21 @@ def run_android_tasks_post_build(logger, params, env_vars, actions_performed):
     if not params.get(KEY_DISABLE_OBFUSCATION, False) and params.get(KEY_UPLOAD_SYMBOLS, False):
         logger.header("--- Nahrávám symboly (Android) na Firebase ---")
         firebase_app_id = resolve_value("FIREBASE_APP_ID", flavor, env, env_vars)
-        symbols_path = 'build/app/outputs/symbols'
+        
+        symbols_path = params.get("_symbols_dir", "") 
         
         if firebase_app_id:
-            if not os.path.isdir(symbols_path):
-                    logger.error(f"Adresář se symboly nenalezen: {symbols_path}. Nahrávání přeskočeno.")
+            if not symbols_path or not os.path.isdir(symbols_path):
+                    logger.error(f"Adresář se symboly nenalezen: '{symbols_path}'. Nahrávání přeskočeno.")
             else:
+                # --- ZMĚNA: Používáme 'firebase' CLI místo 'flutterfire' ---
+                logger.info(f"Používám App ID: {firebase_app_id}")
                 symbols_cmd = [
-                    'flutterfire', 'crashlytics:symbols:upload',
+                    'firebase', 'crashlytics:symbols:upload',
                     f'--app={firebase_app_id}',
-                    '--os=android',
-                    f'--debug-symbols-path={symbols_path}'
+                    symbols_path
                 ]
+                
                 ret_code, _ = execute_command(symbols_cmd, logger)
                 if ret_code == 0:
                     logger.success("Symboly úspěšně nahrány.")
