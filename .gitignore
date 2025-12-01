@@ -1,1 +1,10 @@
 config.json
+
+# PyInstaller artefakty
+build/
+dist/
+*.spec
+
+# Python cache (vždy dobré mít)
+__pycache__/
+*.pyc

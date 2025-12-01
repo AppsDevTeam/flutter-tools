@@ -55,6 +55,7 @@ else
     echo -e "${YELLOW}-> 'flutterfire' chybí. Nebude fungovat nahrávání symbolů na Crashlytics.${NC}"
     echo -e "   -> Instalace: ${BLUE}dart pub global activate flutterfire_cli${NC}"
     echo -e "   -> Ujistěte se, že máte PATH nastavenou pro Dart Pub cache."
+    exit 1
 fi
 
 # --- 4. Kontrola PYTHON ---
@@ -96,3 +97,5 @@ else
     elif [[ "$OS_TYPE" == "windows" ]]; then
         echo -e "   Windows: Při instalaci Pythonu zaškrtněte 'tcl/tk and IDLE'."
     fi
+
+exit 0
