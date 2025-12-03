@@ -37,6 +37,7 @@ class MainWindow(tk.Toplevel):
         self._switch_to_project(current_project_name)
 
         self._is_loading_preset = False # Vlajka, která brání ukládání během načítání
+        self._is_updating_ui = False
 
         # --- ZMĚNA: Oddělené proměnné ---
         self.build_vars = {} 
@@ -452,6 +453,8 @@ class MainWindow(tk.Toplevel):
                 combobox.set("")
 
     def _update_build_ui_state(self, *args):
+        self._is_updating_ui = True
+        
         try:
             build_type = self.build_vars[KEY_BUILD_TYPE].get()
             
@@ -484,6 +487,8 @@ class MainWindow(tk.Toplevel):
                 
         except (AttributeError, tk.TclError):
             pass
+        finally:
+            self._is_updating_ui = False # Vypneme ochranu
 
     def _show_project_options_menu(self):
         """Zobrazí kontextové menu pro úpravu aktuálního projektu."""
@@ -522,22 +527,35 @@ class MainWindow(tk.Toplevel):
         if not settings:
             settings = {}
         
-        # Načteme výchozí hodnoty z presetu PRESET_MANUAL, pokud by klíč chyběl
         default_settings = self.config_manager.get_project_build_presets(self.current_project_name).get(PRESET_MANUAL, {})
             
+        print("--- DEBUG: Aplikuji nastavení do UI ---")
         for key, var in self.build_vars.items():
             if key == KEY_PRESET: continue
             
-            # 1. Vem hodnotu z načítaného presetu
-            # 2. Pokud tam není, vem ji z PRESET_MANUAL (jako fallback)
-            # 3. Pokud ani tam, vem aktuální hodnotu (jako poslední záchrana)
-            fallback_value = default_settings.get(key, var.get())
-            var.set(settings.get(key, fallback_value))
+            # 1. Hodnota z presetu
+            val_from_preset = settings.get(key)
+            # 2. Hodnota z Ručně (fallback)
+            val_from_manual = default_settings.get(key)
+            # 3. Aktuální hodnota (poslední záchrana)
+            val_current = var.get()
+
+            final_value = val_from_preset
+            
+            if final_value is None:
+                print(f"   ! Klíč '{key}' chybí v presetu. Používám fallback (Ručně): {val_from_manual}")
+                final_value = val_from_manual
+                if final_value is None:
+                    final_value = val_current
+            else:
+                print(f"   OK Klíč '{key}': {final_value}")
+
+            var.set(final_value)
 
     def _save_current_build_settings(self, *args):
         """Uloží aktuální stav UI (POUZE build_vars) do aktivního presetu."""
 
-        if self._is_loading_preset:
+        if self._is_loading_preset or self._is_updating_ui:
             return
         
         if not self.preset_selector: return 
@@ -564,16 +582,43 @@ class MainWindow(tk.Toplevel):
 
     def _on_preset_selected(self, *args):
         """Načte nastavení z vybraného build presetu."""
-        preset_name = self.build_vars[KEY_PRESET].get()
+        selected_name = self.build_vars[KEY_PRESET].get()
+        print(f"\n--- DEBUG: Vybírám preset: '{selected_name}' ---")
         
         all_presets = self.config_manager.get_project_build_presets(self.current_project_name)
-        settings = all_presets.get(preset_name, {})
+        print(f"--- DEBUG: Dostupné presety v DB: {list(all_presets.keys())}")
         
+        # 1. Zkusíme přímý přístup
+        settings = all_presets.get(selected_name)
+        
+        if settings is not None:
+            print("--- DEBUG: Nalezeno přesnou shodou.")
+        
+        # 2. Pokud nenalezeno, hledáme fuzzy shodu (kvůli mezerám)
+        if settings is None:
+            print("--- DEBUG: Nenalezeno přesně, zkouším fuzzy (strip)...")
+            real_key = None
+            for key in all_presets.keys():
+                if key.strip() == selected_name.strip():
+                    real_key = key
+                    break
+            
+            if real_key:
+                print(f"--- DEBUG: Nalezen klíč: '{real_key}'")
+                settings = all_presets[real_key]
+                selected_name = real_key 
+            else:
+                print("--- DEBUG: Nenalezeno ani fuzzy. Vracím prázdný slovník (bude použit fallback).")
+                settings = {}
+
+        print(f"--- DEBUG: Načtená data pro nastavení: {settings}")
+
         self._is_loading_preset = True
         self._load_build_settings(settings)
+        self._update_bump_dropdown_options()
         self._is_loading_preset = False
         
-        self.config_manager.save_last_build_preset_name(self.current_project_name, preset_name)
+        self.config_manager.save_last_build_preset_name(self.current_project_name, selected_name)
 
     def _update_preset_list(self):
         """
@@ -595,13 +640,33 @@ class MainWindow(tk.Toplevel):
         # 3. Nastavíme hodnoty do dropdownu
         if self.preset_selector:
             self.preset_selector['values'] = final_presets
-            # Pokud aktuálně vybraná hodnota v seznamu není (např. po smazání), resetujeme na Ručně
-            if self.preset_selector.get() not in final_presets:
-                self.preset_selector.set(PRESET_MANUAL)
+            
+            current_val = self.preset_selector.get()
+            
+            # --- OPRAVA ZDE ---
+            # Pokud se aktuální hodnota přesně neshoduje (třeba kvůli mezeře),
+            # zkusíme ji najít ve 'stripped' verzi, než to vzdáme.
+            if current_val not in final_presets:
+                # Zkusíme najít verzi s mezerou/bez mezery
+                found = False
+                for p in final_presets:
+                    if p.strip() == current_val.strip():
+                        self.preset_selector.set(p) # Nastavíme tu správnou verzi ze seznamu
+                        # A pro jistotu aktualizujeme i last selected v configu
+                        self.config_manager.save_last_build_preset_name(self.current_project_name, p)
+                        found = True
+                        break
+                
+                if not found:
+                    self.preset_selector.set(PRESET_MANUAL)
         
     def _add_preset(self):
         """Uloží aktuální nastavení jako nový preset."""
         preset_name = simpledialog.askstring("Nový preset", "Zadejte název nového presetu:", parent=self)
+        
+        if preset_name:
+            preset_name = preset_name.strip()
+            
         if not preset_name or preset_name == PRESET_MANUAL:
             return
             
