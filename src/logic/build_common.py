@@ -5,6 +5,8 @@ import re
 import platform
 import time
 import glob
+import sys      # <--- PŘIDÁNO
+import shutil   # <--- PŘIDÁNO
 
 from ..constants import ADT_PROJECT_CONFIG_FILENAME
 
@@ -18,6 +20,22 @@ def execute_command(command, logger, title="", working_dir=None, log_stdout=True
     if title:
         logger.header(f"\n--- {title} ---")
     
+    # --- FIX PRO WINDOWS FLUTTER (ZAČÁTEK) ---
+    # Pokud jsme na Windows a voláme 'flutter', musíme volat 'flutter.bat'
+    if sys.platform == "win32" and command and command[0] == "flutter":
+        # Zkusíme najít plnou cestu k flutter.bat
+        flutter_bat = shutil.which("flutter.bat")
+        
+        if flutter_bat:
+            command[0] = flutter_bat
+        else:
+            # Fallback: pokud se nenajde přes which, zkusíme prostě přidat příponu
+            command[0] = "flutter.bat"
+            
+        # Jen pro debug, abyste viděli, že se to děje (můžete smazat)
+        # logger.info(f"Windows detekován: Příkaz 'flutter' přepsán na '{command[0]}'")
+    # --- FIX PRO WINDOWS FLUTTER (KONEC) ---
+
     logger.info(f"🔧 Spouštím v '{working_dir or os.getcwd()}': {' '.join(command)}")
     
     startupinfo = None
@@ -44,6 +62,9 @@ def execute_command(command, logger, title="", working_dir=None, log_stdout=True
         
     except FileNotFoundError:
         logger.error(f"PŘÍKAZ NENALEZEN: Příkaz '{command[0]}' nebyl nalezen.")
+        # Tip pro uživatele
+        if "flutter" in command[0]:
+             logger.error("TIP: Ujistěte se, že máte Flutter přidaný v systémové PATH.")
         return -1, f"PŘÍKAZ NENALEZEN: {command[0]}"
     except Exception as e:
         logger.error(f"CHYBA PŘI VYKONÁNÍ: {e}")
@@ -252,7 +273,6 @@ def perform_git_push(logger, params, version_name, build_number, actions_perform
     else:
         logger.warn("Git commit selhal (možná nebyly žádné změny k commitu).")
 
-# --- NOVÁ FUNKCE (přesunuta z android a zobecněna) ---
 def get_package_name(logger, env_vars):
     """Najde packageName v env_vars (z adt_tools_config.env)."""
     package_name = env_vars.get("PACKAGE_NAME")
