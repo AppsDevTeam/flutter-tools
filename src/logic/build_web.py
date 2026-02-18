@@ -45,18 +45,12 @@ def _add_version_query_to_assets(logger, build_number):
         logger.error(f"Nepodařilo se vytvořit zálohu index.html: {e}")
         return
 
-    targets = [
-        "flutter_bootstrap.js",
-        "manifest.json",
-        "favicon.png",
-        "icons/Icon-192.png",
-        "icons/Icon-512.png"
-    ]
-
     try:
         with open(index_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
+        targets = re.findall(r'(?:href|src)=["\']([^"\'?#]+\.[a-zA-Z0-9]+)["\']', content)
+        logger.info(f"Nalezené targety pro verzování: {targets}")
         for target in targets:
             content = content.replace(target, f"{target}{version_param}")
 

@@ -92,12 +92,15 @@ def find_and_rename_output(logger, params, env_vars):
             # Cesta: build/app/outputs/bundle/tapygoProdRelease/*.aab
             candidates.append(f"build/app/outputs/bundle/{combined_flavor}{mode_camel}/*.aab")
             candidates.append(f"build/app/outputs/bundle/{combined_flavor}/*.aab")
+            candidates.append(f"build/app/outputs/bundle/{combined_flavor.lower()}{mode_camel}/*.aab")
 
         # Obecný fallback
         candidates.append(f"build/app/outputs/bundle/{mode}/*.aab")
         candidates.append(f"build/app/outputs/bundle/{mode_camel}/*.aab")
+        candidates.append("build/app/outputs/bundle/**/*.aab")
     
     # Hledání
+    logger.info(f"Hledám kandidáty: {candidates}")
     output_file = _find_output_file(logger, candidates)
     
     if not output_file or not os.path.exists(output_file):
