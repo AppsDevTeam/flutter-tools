@@ -91,8 +91,15 @@ def resolve_dart_defines(logger, flavor, env, env_vars):
     firebase_keys = set()
     for key in env_vars.keys():
         if key.startswith("DART_DEFINES_"):
-            parts = key.split('_', 2) 
-            if len(parts) > 1: define_keys.add(parts[1])
+            rest = key[len("DART_DEFINES_"):]
+            base_name = rest
+            if flavor and env and rest.endswith(f"_{flavor}_{env}"):
+                base_name = rest[:-len(f"_{flavor}_{env}")]
+            elif flavor and rest.endswith(f"_{flavor}"):
+                base_name = rest[:-len(f"_{flavor}")]
+            elif env and rest.endswith(f"_{env}"):
+                base_name = rest[:-len(f"_{env}")]
+            define_keys.add(base_name)
         elif key.startswith("FIREBASE_APP_ID_"):
             firebase_keys.add("FIREBASE_APP_ID")
 
