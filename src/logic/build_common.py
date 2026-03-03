@@ -103,6 +103,13 @@ def resolve_dart_defines(logger, flavor, env, env_vars):
         elif key.startswith("FIREBASE_APP_ID_"):
             firebase_keys.add("FIREBASE_APP_ID")
 
+    # Remove keys that are suffixed variants of a shorter key already in the set.
+    # E.g. if both 'SHOW_BANNER' and 'SHOW_BANNER_prod' are present, drop 'SHOW_BANNER_prod'.
+    define_keys = {
+        k for k in define_keys
+        if not any('_'.join(k.split('_')[:i]) in define_keys for i in range(1, len(k.split('_'))))
+    }
+
     for base_key in define_keys:
         value = resolve_value(f"DART_DEFINES_{base_key}", flavor, env, env_vars)
         if value is not None:
