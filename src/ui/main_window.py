@@ -399,10 +399,8 @@ class MainWindow(tk.Toplevel):
         """Zavolá se při výběru z dropdownu verzí."""
         selected_string = self.bump_dropdown.get()
         strategy_key = self.bump_strategy_map.get(selected_string, BUMP_NONE)
-        
-        # Uložíme klíč ("patch", "major", atd.) do naší proměnné
-        # Tím se automaticky spustí _save_current_build_settings
         self.build_vars[KEY_BUMP_STRATEGY].set(strategy_key)
+        self._save_current_build_settings()
 
     # ... (metody _create_dynamic_list_row, _update_dynamic_list, _add_to_list_dialog, 
     # ... _remove_from_list, _update_build_ui_state zůstávají stejné) ...
