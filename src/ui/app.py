@@ -158,7 +158,7 @@ class App(tk.Tk):
             if self.config_manager.update_project_path(name, new_path):
                 print(f"--- Cesta pro '{name}' změněna na '{new_path}' ---")
                 if self.main_window and self.main_window.current_project_name == name:
-                    self.main_window._switch_to_project(name)
+                    self.show_main_app(name)
             else:
                 messagebox.showerror("Chyba", "Nepodařilo se aktualizovat cestu.", parent=current_parent)
 
