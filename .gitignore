@@ -8,3 +8,6 @@ dist/
 # Python cache (vždy dobré mít)
 __pycache__/
 *.pyc
+
+# Claude Code lokální konfigurace
+.claude/
