@@ -54,7 +54,7 @@ def _add_version_query_to_assets(logger, build_number):
         for target in targets:
             content = content.replace(target, f"{target}{version_param}")
 
-        with open(index_path, 'w', encoding='utf-8') as f:
+        with open(index_path, 'w', encoding='utf-8', newline='\n') as f:
             f.write(content)
             
         os.remove(backup_path)

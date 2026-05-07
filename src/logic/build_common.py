@@ -208,7 +208,8 @@ def bump_version(logger, strategy):
         
         with open('pubspec.yaml', 'r', encoding='utf-8') as f: content = f.read()
         content = content.replace(current_version_line, new_version_line, 1)
-        with open('pubspec.yaml', 'w', encoding='utf-8') as f: f.write(content)
+        # newline='\n' brání tomu, aby Python na Windows přepsal celý soubor LF→CRLF
+        with open('pubspec.yaml', 'w', encoding='utf-8', newline='\n') as f: f.write(content)
             
         logger.success(f"Verze povýšena z {version_name}+{build_number} na {new_version_name}+{new_build_number}")
         return new_version_name, new_build_number
@@ -231,8 +232,9 @@ def revert_pubspec_version(logger, original_version_line):
         
         # Nahradíme aktuální (špatnou) verzi původní (dobrou) verzí
         content = content.replace(current_version_line, original_version_line, 1)
-        
-        with open('pubspec.yaml', 'w', encoding='utf-8') as f:
+
+        # newline='\n' brání tomu, aby Python na Windows přepsal celý soubor LF→CRLF
+        with open('pubspec.yaml', 'w', encoding='utf-8', newline='\n') as f:
             f.write(content)
             
         logger.success("Pubspec.yaml byl úspěšně vrácen do původního stavu.")
@@ -323,7 +325,8 @@ def update_changelog(logger, version_name, build_number):
             else:
                 content = new_section + existing
 
-        with open(CHANGELOG_FILENAME, 'w', encoding='utf-8') as f:
+        # newline='\n' zajistí konzistentní LF na všech platformách
+        with open(CHANGELOG_FILENAME, 'w', encoding='utf-8', newline='\n') as f:
             f.write(content)
     except Exception as e:
         logger.error(f"Chyba při zápisu {CHANGELOG_FILENAME}: {e}")

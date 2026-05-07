@@ -48,7 +48,7 @@ def run_add_nbsp_logic(target_dir, logger):
                 with open(filename, 'r', encoding='utf-8') as f:
                     raw_text = f.read()
                 processed_text = process_json_text(raw_text, regex_for_words)
-                with open(filename, 'w', encoding='utf-8') as f:
+                with open(filename, 'w', encoding='utf-8', newline='\n') as f:
                     f.write(processed_text)
                 logger.success(f"✅ Zpracováno: '{filename}' (Jazyk: {lang.upper()})\n")
                 processed_count += 1
