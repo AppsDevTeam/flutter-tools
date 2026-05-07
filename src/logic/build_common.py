@@ -275,10 +275,12 @@ def update_changelog(logger, version_name, build_number):
 
     # Range: od posledního commitu modifikujícího CHANGELOG.md do HEAD.
     # Pokud soubor v gitu nikdy nebyl, rangem je celá historie.
+    # `core.quotepath=false` zajistí, že non-ASCII znaky (č, š, ě, ...)
+    # ve výstupu nebudou escapované jako \xc4\x8d (default na Windows).
     range_arg = "HEAD"
     if existing:
         ret_code, out = execute_command(
-            ['git', 'log', '-1', '--format=%H', '--', CHANGELOG_FILENAME],
+            ['git', '-c', 'core.quotepath=false', 'log', '-1', '--format=%H', '--', CHANGELOG_FILENAME],
             logger, log_stdout=False
         )
         last_sha = out.strip() if ret_code == 0 else ""
@@ -286,7 +288,8 @@ def update_changelog(logger, version_name, build_number):
             range_arg = f"{last_sha}..HEAD"
 
     log_cmd = [
-        'git', 'log', range_arg,
+        'git', '-c', 'core.quotepath=false',
+        'log', range_arg,
         '--no-merges',
         '--invert-grep',
         '--extended-regexp',
