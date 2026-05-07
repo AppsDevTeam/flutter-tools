@@ -4,16 +4,16 @@ import re
 
 from ..constants import (
     ADT_PROJECT_CONFIG_FILENAME, PRESET_MANUAL,
-    KEY_BUILD_TYPE, KEY_BUILD_MODE, KEY_FLAVOR, KEY_ENV, 
+    KEY_BUILD_TYPE, KEY_BUILD_MODE, KEY_FLAVOR, KEY_ENV,
     KEY_BUMP_STRATEGY, BUMP_NONE,
-    KEY_GIT_PUSH, KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS, 
-    KEY_INSTALL_COCOAPODS, KEY_CHECK_SQLITE_WEB
+    KEY_GIT_PUSH, KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS,
+    KEY_INSTALL_COCOAPODS, KEY_CHECK_SQLITE_WEB, KEY_UPDATE_CHANGELOG
 )
 from .build_common import (
     execute_command, parse_env_file, resolve_dart_defines,
     get_version_from_pubspec, bump_version, perform_git_push,
-    open_output_folder, revert_pubspec_version, 
-    to_camel_case, get_version_parts # <-- NOVÉ IMPORTY
+    open_output_folder, revert_pubspec_version,
+    to_camel_case, get_version_parts, update_changelog
 )
 from .build_android import run_android_tasks_post_build
 from .build_ios import run_ios_tasks_pre_build, run_ios_tasks_post_build
@@ -51,7 +51,11 @@ def run_flutter_build_logic(params, logger):
     flavor = params.get(KEY_FLAVOR)
     env = params.get(KEY_ENV)
     
-    actions_performed = { "version": False, "cocoapods": False, "symbols": False, "web_check": False, "web_added": False, "desktop_added": False }
+    actions_performed = {
+        "version": False, "cocoapods": False, "symbols": False,
+        "web_check": False, "web_added": False, "desktop_added": False,
+        "changelog": False,
+    }
 
     # Načtení environment proměnných HNED, protože je potřebujeme pro iOS pre-build
     env_vars = parse_env_file(logger)
@@ -83,6 +87,13 @@ def run_flutter_build_logic(params, logger):
 
     params["_version_name"] = version_name
     params["_build_number"] = build_number
+
+    # --- KROK 3.5: Aktualizace CHANGELOG.md ---
+    if params.get(KEY_UPDATE_CHANGELOG, False):
+        if update_changelog(logger, version_name, build_number):
+            actions_performed["changelog"] = True
+        else:
+            logger.warn("Aktualizace changelogu selhala — pokračuji v buildu.")
 
     # --- KROK 4: Platform-specific úkoly PŘED buildem ---
     if build_type == 'ipa':

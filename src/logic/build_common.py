@@ -5,8 +5,16 @@ import re
 import platform
 import time
 import glob
+from datetime import date
 
 from ..constants import ADT_PROJECT_CONFIG_FILENAME
+
+CHANGELOG_FILENAME = "CHANGELOG.md"
+
+# Prefixy commit messages, které generuje sám tool (bump verze, symbols upload,
+# web/desktop build commit, atd.). Při generování changelogu je vyřazujeme
+# z `git log`, ať se neopakují jako "user changes" v dalších verzích.
+_TOOL_COMMIT_PREFIXES_REGEX = r'^(Version|Web Build|Desktop Build|Symbols|Cocoapods|Build) '
 
 def to_camel_case(s):
     """Převede string (např. 'prerelease') na CamelCase ('Prerelease')."""
@@ -231,6 +239,96 @@ def revert_pubspec_version(logger, original_version_line):
         
     except Exception as e:
         logger.error(f"Kritická chyba při rollbacku verze: {e}")
+
+def update_changelog(logger, version_name, build_number):
+    """
+    Doplní do CHANGELOG.md sekci pro aktuální verzi+build_number.
+
+    - Pokud soubor neexistuje, vytvoří ho s hlavičkou "# Changelog".
+    - Pokud sekce pro stejnou verzi+build_number už existuje, NIC nedělá
+      (idempotence — opakovaný build téže verze, např. apk → ipa → appbundle,
+      nepřidá entry vícekrát).
+    - Range commitů = od posledního commitu, který modifikoval CHANGELOG.md,
+      do HEAD (resp. od počátku repa, pokud nikdy nebyl modifikován).
+    - Z range vyhazuje vlastní tool commity (Version, Symbols, Cocoapods, ...).
+
+    Vrací True při úspěchu (i pokud nic nezapsal — to není chyba).
+    """
+    logger.header(f"--- Aktualizuji {CHANGELOG_FILENAME} ---")
+
+    new_version_str = f"{version_name}+{build_number}"
+    today = date.today().isoformat()
+    section_header = f"## [{new_version_str}]"
+
+    existing = None
+    if os.path.exists(CHANGELOG_FILENAME):
+        try:
+            with open(CHANGELOG_FILENAME, 'r', encoding='utf-8') as f:
+                existing = f.read()
+        except Exception as e:
+            logger.error(f"Chyba při čtení {CHANGELOG_FILENAME}: {e}")
+            return False
+
+        if section_header in existing:
+            logger.info(f"ℹ️ Sekce [{new_version_str}] už v {CHANGELOG_FILENAME} existuje — přeskakuji.")
+            return True
+
+    # Range: od posledního commitu modifikujícího CHANGELOG.md do HEAD.
+    # Pokud soubor v gitu nikdy nebyl, rangem je celá historie.
+    range_arg = "HEAD"
+    if existing:
+        ret_code, out = execute_command(
+            ['git', 'log', '-1', '--format=%H', '--', CHANGELOG_FILENAME],
+            logger, log_stdout=False
+        )
+        last_sha = out.strip() if ret_code == 0 else ""
+        if last_sha:
+            range_arg = f"{last_sha}..HEAD"
+
+    log_cmd = [
+        'git', 'log', range_arg,
+        '--no-merges',
+        '--invert-grep',
+        '--extended-regexp',
+        f'--grep={_TOOL_COMMIT_PREFIXES_REGEX}',
+        '--pretty=format:- %s',
+    ]
+    ret_code, log_output = execute_command(log_cmd, logger, log_stdout=False)
+    if ret_code != 0:
+        logger.error("Nepodařilo se získat git log pro changelog.")
+        return False
+
+    commits = log_output.strip()
+    if not commits:
+        logger.info("ℹ️ Žádné nové uživatelské commity od poslední aktualizace changelogu — sekce nebude přidána.")
+        return True
+
+    new_section = f"{section_header} - {today}\n{commits}\n\n"
+
+    try:
+        if existing is None:
+            content = "# Changelog\n\n" + new_section
+        else:
+            # Vložit před první existující sekci (## ...), jinak za případnou
+            # top-level hlavičku, jinak prepend.
+            marker = "\n## "
+            if marker in existing:
+                idx = existing.index(marker)
+                content = existing[:idx + 1] + new_section + existing[idx + 1:]
+            elif existing.lstrip().startswith("# "):
+                content = existing.rstrip() + "\n\n" + new_section
+            else:
+                content = new_section + existing
+
+        with open(CHANGELOG_FILENAME, 'w', encoding='utf-8') as f:
+            f.write(content)
+    except Exception as e:
+        logger.error(f"Chyba při zápisu {CHANGELOG_FILENAME}: {e}")
+        return False
+
+    action = "vytvořen" if existing is None else "aktualizován"
+    logger.success(f"✅ {CHANGELOG_FILENAME} {action}, přidána sekce [{new_version_str}].")
+    return True
 
 def perform_git_push(logger, params, version_name, build_number, actions_performed):
     logger.header("--- Nahrávám změny na Git ---")

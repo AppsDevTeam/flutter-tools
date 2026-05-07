@@ -2,10 +2,26 @@ import json
 import os
 from .constants import (
     PRESET_MANUAL, KEY_TRANSLATIONS_PATH, KEY_BUILD_TYPE, KEY_BUILD_MODE,
-    KEY_FLAVOR, KEY_ENV, KEY_BUMP_STRATEGY, BUMP_PATCH, KEY_GIT_PUSH, 
+    KEY_FLAVOR, KEY_ENV, KEY_BUMP_STRATEGY, BUMP_PATCH, KEY_GIT_PUSH,
     KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS, KEY_INSTALL_COCOAPODS,
-    KEY_CHECK_SQLITE_WEB
+    KEY_CHECK_SQLITE_WEB, KEY_UPDATE_CHANGELOG
 )
+
+# Defaults applied to every build preset; used both for new projects and lazy
+# migration of existing config.json entries that miss newer keys.
+PRESET_DEFAULTS = {
+    KEY_BUILD_TYPE: "apk",
+    KEY_BUILD_MODE: "release",
+    KEY_FLAVOR: "",
+    KEY_ENV: "",
+    KEY_BUMP_STRATEGY: BUMP_PATCH,
+    KEY_GIT_PUSH: True,
+    KEY_DISABLE_OBFUSCATION: False,
+    KEY_UPLOAD_SYMBOLS: True,
+    KEY_INSTALL_COCOAPODS: True,
+    KEY_CHECK_SQLITE_WEB: False,
+    KEY_UPDATE_CHANGELOG: False,
+}
 
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
 APP_ROOT_DIR = os.path.dirname(SRC_DIR)
@@ -53,18 +69,7 @@ class ConfigManager:
             "envs": [],
             "last_selected_build_preset": "Ručně",
             "build_presets": {
-                PRESET_MANUAL: {
-                    KEY_BUILD_TYPE: "apk",
-                    KEY_BUILD_MODE: "release",
-                    KEY_FLAVOR: "",
-                    KEY_ENV: "",
-                    KEY_BUMP_STRATEGY: BUMP_PATCH, # Zde jsi měl BUMP_PATCH, tak to nechávám
-                    KEY_GIT_PUSH: True,
-                    KEY_DISABLE_OBFUSCATION: False,
-                    KEY_UPLOAD_SYMBOLS: True,
-                    KEY_INSTALL_COCOAPODS: True,
-                    KEY_CHECK_SQLITE_WEB: False
-                }
+                PRESET_MANUAL: dict(PRESET_DEFAULTS)
             },
             "nbsp_settings": {
                 KEY_TRANSLATIONS_PATH: "assets/translations"
@@ -181,32 +186,51 @@ class ConfigManager:
     def get_project_build_presets(self, project_name):
         """
         Vrátí slovník všech build presetů pro daný projekt.
-        Vždy zajistí přítomnost klíče PRESET_MANUAL ('Ručně').
+        Vždy zajistí přítomnost klíče PRESET_MANUAL ('Ručně') a doplní
+        chybějící klíče v každém presetu (lazy migrace).
         """
         project_data = self._get_project(project_name)
-        default_presets = {PRESET_MANUAL: {}}
-        
+        default_presets = {PRESET_MANUAL: dict(PRESET_DEFAULTS)}
+
         if not project_data:
             return default_presets
 
         presets = project_data.get('build_presets', default_presets)
-        
+
         # 1. Pojistka proti špatnému typu
         if not isinstance(presets, dict):
             print(f"OPRAVA: 'build_presets' pro '{project_name}' byl poškozen. Resetuji na výchozí.")
             project_data['build_presets'] = default_presets
             self.save_config()
             return default_presets
-            
+
         # 2. Pojistka: VŽDY zajistit existenci "Ručně"
         # I když je v configu smazaný nebo prázdný, v paměti (a pro UI) ho chceme vidět.
         if PRESET_MANUAL not in presets:
-            presets[PRESET_MANUAL] = {}
-            # Volitelně můžeme rovnou uložit opravu do souboru:
-            # self.save_project_build_preset(project_name, PRESET_MANUAL, {})
-            
+            presets[PRESET_MANUAL] = dict(PRESET_DEFAULTS)
+
+        # 3. Lazy migrace: doplň chybějící klíče v každém presetu výchozími hodnotami
+        if self._migrate_preset_defaults(presets):
+            self.save_config()
+
         return presets
     # --- KONEC OPRAVENÉ METODY ---
+
+    def _migrate_preset_defaults(self, presets):
+        """
+        Doplní v každém presetu chybějící klíče z PRESET_DEFAULTS.
+        Vrací True, pokud bylo něco doplněno (volající má pak uložit config).
+        """
+        changed = False
+        for preset_name, settings in presets.items():
+            if not isinstance(settings, dict):
+                continue
+            for key, default_val in PRESET_DEFAULTS.items():
+                if key not in settings:
+                    settings[key] = default_val
+                    changed = True
+                    print(f"MIGRACE: '{preset_name}' doplněn klíč '{key}' = {default_val}")
+        return changed
 
     def save_project_build_preset(self, project_name, preset_name, settings):
         """Uloží nebo přepíše nastavení pro jeden build preset v rámci projektu."""

@@ -18,7 +18,7 @@ from ..constants import (
     KEY_FLAVOR, KEY_ENV, KEY_BUMP_STRATEGY, BUMP_NONE, BUMP_MAJOR, 
     BUMP_MINOR, BUMP_PATCH, BUMP_BUILD, KEY_GIT_PUSH, 
     KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS, KEY_INSTALL_COCOAPODS,
-    KEY_CHECK_SQLITE_WEB
+    KEY_CHECK_SQLITE_WEB, KEY_UPDATE_CHANGELOG
 )
 
 class MainWindow(tk.Toplevel):
@@ -210,6 +210,9 @@ class MainWindow(tk.Toplevel):
             KEY_CHECK_SQLITE_WEB: tk.BooleanVar(
                 value=manual_settings.get(KEY_CHECK_SQLITE_WEB, False)
             ),
+            KEY_UPDATE_CHANGELOG: tk.BooleanVar(
+                value=manual_settings.get(KEY_UPDATE_CHANGELOG, False)
+            ),
         }
         
         # 3. Až teď zapneme sledování změn (trace)
@@ -294,6 +297,7 @@ class MainWindow(tk.Toplevel):
         checkbox_subframe.grid(row=1, column=0, columnspan=2, sticky="w", pady=(5,0), padx=5)
 
         self._create_checkbox(checkbox_subframe, "Nahrát na Git (Push)", KEY_GIT_PUSH)
+        self._create_checkbox(checkbox_subframe, "Aktualizovat CHANGELOG.md", KEY_UPDATE_CHANGELOG)
         self._create_checkbox(checkbox_subframe, "Instalovat Cocoapods (pro iOS)", KEY_INSTALL_COCOAPODS)
 
         # ... (zbytek: obfuscate_frame, web_frame, konzole, tlačítko) ...

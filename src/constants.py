@@ -48,8 +48,9 @@ KEY_DISABLE_OBFUSCATION = "disable_obfuscation"
 KEY_UPLOAD_SYMBOLS = "upload_symbols"
 KEY_INSTALL_COCOAPODS = "install_cocoapods"
 KEY_CHECK_SQLITE_WEB = "check_sqlite_web"
+KEY_UPDATE_CHANGELOG = "update_changelog"
 
-KEY_BUMP_STRATEGY = "bump_strategy" 
+KEY_BUMP_STRATEGY = "bump_strategy"
 
 # Klíče pro jednotlivé strategie
 BUMP_NONE = "none"
