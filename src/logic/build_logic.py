@@ -57,6 +57,20 @@ def run_flutter_build_logic(params, logger):
         "changelog": False,
     }
 
+    # Diagnostický log klíčových flagů — usnadňuje ladění případů,
+    # kdy se v UI něco vypne, ale build se přesto chová jako by bylo zapnuto.
+    logger.info(
+        f"📋 Build flags: git_push={params.get(KEY_GIT_PUSH, False)}, "
+        f"update_changelog={params.get(KEY_UPDATE_CHANGELOG, False)}, "
+        f"bump={params.get(KEY_BUMP_STRATEGY, BUMP_NONE)}, "
+        f"obfuscation={'OFF' if params.get(KEY_DISABLE_OBFUSCATION, False) else 'ON'}, "
+        f"symbols={params.get(KEY_UPLOAD_SYMBOLS, False)}, "
+        f"cocoapods={params.get(KEY_INSTALL_COCOAPODS, False)}"
+    )
+
+    if params.get(KEY_UPDATE_CHANGELOG, False) and not params.get(KEY_GIT_PUSH, False):
+        logger.info("ℹ️ Changelog se aktualizuje, ale git push je vypnutý — změny zůstanou jen v pracovním adresáři.")
+
     # Načtení environment proměnných HNED, protože je potřebujeme pro iOS pre-build
     env_vars = parse_env_file(logger)
 
