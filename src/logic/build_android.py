@@ -109,15 +109,13 @@ def find_and_rename_output(logger, params, env_vars):
 
     # Přejmenování
     output_dir = os.path.dirname(output_file)
+    flavor_part = f"-{flavor}" if flavor else ""
     file_env_suffix = f"-{env_lc}" if env_lc else ""
-    
+
     # Přípona se vezme ze skutečného souboru (bude .aab nebo .apk)
     extension = output_file.split('.')[-1]
-    
-    if flavor:
-        new_file_name = f"{package_name}-v{version_name}({build_number})-{flavor}{file_env_suffix}-{mode}.{extension}"
-    else:
-        new_file_name = f"{package_name}-v{version_name}({build_number})-{mode}.{extension}"
+
+    new_file_name = f"{package_name}-v{version_name}({build_number}){flavor_part}{file_env_suffix}-{mode}.{extension}"
         
     new_path = os.path.join(output_dir, new_file_name)
     
