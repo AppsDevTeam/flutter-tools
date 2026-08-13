@@ -18,6 +18,7 @@ Runs a parametrised Flutter build with all the steps you would normally chain by
 - **Version bumping**: `major` / `minor` / `patch` / `build` directly in `pubspec.yaml`, with automatic revert if the build fails.
 - **CHANGELOG.md update** — appends the new version with the bumped number.
 - **Obfuscation** toggle (`--obfuscate --split-debug-info`) for mobile builds.
+- **Dart snapshot verification (Android)** — non-debug `apk` / `appbundle` builds drop the Gradle native-lib merge cache for the variant beforehand, and afterwards every `lib/<abi>/libapp.so` inside the artifact is matched by GNU build-id against the `libapp.so` this build actually produced. A stale snapshot or a missing ABI fails the build instead of shipping an app that runs old Dart code — or crashes on startup on the ABI whose snapshot is missing.
 - **Symbol upload to Firebase Crashlytics** — Android via the Firebase CLI (`crashlytics:symbols:upload`), iOS via the `upload-symbols` script that ships with the FirebaseCrashlytics CocoaPod.
 - **CocoaPods install** for iOS (clean reinstall before the build).
 - **Git push** of `pubspec.yaml` and `CHANGELOG.md` after a successful build.

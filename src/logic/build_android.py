@@ -6,6 +6,7 @@ import re
 import platform
 
 from .build_common import execute_command, resolve_value, get_package_name
+from .android_snapshot_check import verify_dart_snapshots
 from ..constants import KEY_BUILD_TYPE, KEY_FLAVOR, KEY_ENV, KEY_BUILD_MODE, \
     KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS
 
@@ -61,7 +62,7 @@ def find_and_rename_output(logger, params, env_vars):
 
     package_name = get_package_name(logger, env_vars)
     if not package_name:
-        return None 
+        return None, None
 
     env_camel = _camel_case(env) 
     env_lc = env.lower() if env else ""
@@ -105,7 +106,7 @@ def find_and_rename_output(logger, params, env_vars):
     
     if not output_file or not os.path.exists(output_file):
         logger.error("Nepodařilo se najít výstupní soubor.")
-        return None
+        return None, None
 
     # Přejmenování
     output_dir = os.path.dirname(output_file)
@@ -125,21 +126,28 @@ def find_and_rename_output(logger, params, env_vars):
             logger.success(f"Soubor přejmenován na: {new_file_name}")
         else:
             logger.info(f"Soubor již má správný název: {new_file_name}")
-            
-        return output_dir
+
+        return output_dir, new_path
     except Exception as e:
         logger.error(f"Chyba při přejmenování '{output_file}' na '{new_path}': {e}")
-        return None
+        return None, None
 
 
 def run_android_tasks_post_build(logger, params, env_vars, actions_performed):
     """
     Spustí úlohy specifické pro Android po úspěšném buildu.
+
+    Vyhazuje RuntimeError, pokud artefakt neobsahuje Dart snapshot z tohohle buildu —
+    takový artefakt se nesmí dostat ven ani se pro něj nemají nahrávat symboly.
     """
     flavor = params.get(KEY_FLAVOR)
     env = params.get(KEY_ENV)
-    
-    output_dir = find_and_rename_output(logger, params, env_vars)
+    mode = params.get(KEY_BUILD_MODE)
+
+    output_dir, artifact_path = find_and_rename_output(logger, params, env_vars)
+
+    if artifact_path and not verify_dart_snapshots(logger, artifact_path, flavor, env, mode):
+        raise RuntimeError("Artefakt neobsahuje Dart kód z tohoto buildu.")
 
     if not params.get(KEY_DISABLE_OBFUSCATION, False) and params.get(KEY_UPLOAD_SYMBOLS, False):
         logger.header("--- Nahrávám symboly (Android) na Firebase ---")

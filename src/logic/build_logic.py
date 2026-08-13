@@ -16,6 +16,7 @@ from .build_common import (
     to_camel_case, get_version_parts, update_changelog
 )
 from .build_android import run_android_tasks_post_build
+from .android_snapshot_check import purge_native_libs_cache
 from .build_ios import run_ios_tasks_pre_build, run_ios_tasks_post_build
 from .build_web import run_web_tasks_pre_build, run_web_tasks_post_build, restore_web_build_from_git
 from .build_desktop import run_desktop_tasks_post_build
@@ -188,7 +189,13 @@ def run_flutter_build_logic(params, logger):
         logger.info(f"Symboly budou uloženy do: {symbols_dir}")
     
     build_command.extend(dart_defines)
-    
+
+    # 5.5 Vyčištění Gradle cache sloučených nativních knihoven
+    # AGP je merguje inkrementálně a umí do artefaktu zabalit libapp.so z předchozího
+    # buildu, případně ho pro některé ABI vynechat. Smazání cache stojí sekundy.
+    if build_type in ['apk', 'appbundle'] and build_mode != 'debug':
+        purge_native_libs_cache(logger, flavor, env, build_mode)
+
     # Spuštění buildu
     ret_code, _ = execute_command(build_command, logger, f"Spouštím Flutter Build ({build_type} - {build_mode})")
     
