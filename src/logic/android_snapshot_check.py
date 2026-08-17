@@ -18,7 +18,20 @@ import struct
 import zipfile
 
 FLUTTER_INTERMEDIATES = os.path.join("build", "app", "intermediates", "flutter")
+
+# Řetěz, kterým `libapp.so` putuje do APK:
+#   flutter/<varianta>/jniLibs   (výstup Flutteru — zdroj pravdy, NEMAZAT)
+#     -> merged_jni_libs/<varianta>
+#     -> merged_native_libs/<varianta>
+#     -> stripped_native_libs/<varianta>
+#     -> APK
+#
+# Vyčistit se musí všechny tři mezikroky. `merged_jni_libs` tady dřív chybělo a
+# stačilo to na to, aby se do release APK protáhl `libapp.so` z předchozího buildu:
+# `merged_native_libs` se přegenerovalo, ale obsah si vzalo z neaktualizovaného
+# `merged_jni_libs`, takže artefakt nesl Dart kód ze starého commitu.
 NATIVE_LIBS_CACHE_DIRS = [
+    os.path.join("build", "app", "intermediates", "merged_jni_libs"),
     os.path.join("build", "app", "intermediates", "merged_native_libs"),
     os.path.join("build", "app", "intermediates", "stripped_native_libs"),
 ]
