@@ -50,6 +50,63 @@ def _find_output_file(logger, candidates):
                         
     return None
 
+# Adresáře s hotovými artefakty, které se před buildem vyprazdňují.
+#
+# `find_and_rename_output` přejmenovává artefakt přímo v output adresáři na
+# <package>-v<verze>(<build>)-<mode>.<ext>, takže tam po každém releasu zůstane
+# ležet další soubor. Flutter 3.44+ na tom u release appbundle buildu selže:
+# ověřuje, že AGP odstripoval debug symboly, a AAB si k tomu najde tak, že vezme
+# PRVNÍ *release.aab ve výpisu adresáře (findBundleFile v gradle.dart). Když padne
+# na artefakt ze staršího toolchainu, který v BUNDLE-METADATA nemá libapp.so.sym,
+# build skončí na "Release app bundle failed to strip debug symbols" — přesto, že
+# právě vyrobený AAB je v pořádku.
+#
+# Maže se celý obsah pro daný typ artefaktu, ne jen aktuální varianta: všechno
+# v build/app/outputs/ je výstup předchozích buildů a znovu se vyrobí.
+STALE_ARTIFACT_GLOBS = {
+    "appbundle": [
+        os.path.join("build", "app", "outputs", "bundle", "**", "*.aab"),
+    ],
+    "aab": [
+        os.path.join("build", "app", "outputs", "bundle", "**", "*.aab"),
+    ],
+    "apk": [
+        os.path.join("build", "app", "outputs", "apk", "**", "*.apk"),
+        os.path.join("build", "app", "outputs", "flutter-apk", "*.apk"),
+    ],
+}
+
+
+def purge_stale_artifacts(logger, build_type):
+    """
+    Smaže artefakty z předchozích buildů, aby v output adresáři zůstal po buildu
+    jen ten právě vyrobený.
+
+    Volá se před spuštěním Flutter buildu. Neúspěšné mazání se jen zaloguje,
+    build kvůli němu padat nemá.
+    """
+    removed = []
+
+    for pattern in STALE_ARTIFACT_GLOBS.get(build_type, []):
+        for path in sorted(glob.glob(pattern, recursive=True)):
+            if not os.path.isfile(path):
+                continue
+
+            try:
+                os.remove(path)
+                removed.append(path)
+            except Exception as e:
+                logger.warn(f"Nepodařilo se smazat '{path}': {e}")
+
+    if removed:
+        logger.header("--- Čistím artefakty z předchozích buildů ---")
+
+        for path in removed:
+            logger.info(f"   ✓ smazáno: {path}")
+    else:
+        logger.info("Žádné artefakty z předchozích buildů, není co mazat.")
+
+
 def find_and_rename_output(logger, params, env_vars):
     logger.header("--- Hledám a přejmenovávám výstupní soubor ---")
     

@@ -15,7 +15,7 @@ from .build_common import (
     open_output_folder, revert_pubspec_version,
     to_camel_case, get_version_parts, update_changelog
 )
-from .build_android import run_android_tasks_post_build
+from .build_android import run_android_tasks_post_build, purge_stale_artifacts
 from .android_snapshot_check import purge_native_libs_cache
 from .build_ios import run_ios_tasks_pre_build, run_ios_tasks_post_build
 from .build_web import run_web_tasks_pre_build, run_web_tasks_post_build, restore_web_build_from_git
@@ -189,6 +189,12 @@ def run_flutter_build_logic(params, logger):
         logger.info(f"Symboly budou uloženy do: {symbols_dir}")
     
     build_command.extend(dart_defines)
+
+    # 5.4 Smazání artefaktů z předchozích buildů
+    # Přejmenované artefakty se v output adresáři hromadí a Flutter si při kontrole
+    # odstripovaných debug symbolů umí vybrat ten starý (viz purge_stale_artifacts).
+    if build_type in ['apk', 'appbundle']:
+        purge_stale_artifacts(logger, build_type)
 
     # 5.5 Vyčištění Gradle cache sloučených nativních knihoven
     # AGP je merguje inkrementálně a umí do artefaktu zabalit libapp.so z předchozího
