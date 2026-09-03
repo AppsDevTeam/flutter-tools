@@ -7,7 +7,7 @@ import time
 import glob
 from datetime import date
 
-from ..constants import ADT_PROJECT_CONFIG_FILENAME
+from ..constants import ADT_PROJECT_CONFIG_FILENAME, KEY_FLAVOR
 
 CHANGELOG_FILENAME = "CHANGELOG.md"
 
@@ -355,8 +355,15 @@ def perform_git_push(logger, params, version_name, build_number, actions_perform
     else: commit_prefix = "Build"
 
     commit_env = f" -{params.get('env')}" if params.get('env') else ""
+    # Flavor bez env suffixu — env je v commit message už jako " -prod" na konci,
+    # takže "tapygoProd" by ho zdvojilo. Projekty bez flavorů dostanou stejný
+    # tvar jako dosud.
+    commit_flavor = f" {params.get(KEY_FLAVOR)}" if params.get(KEY_FLAVOR) else ""
     version_name_clean = version_name.split('+')[0]
-    commit_message = f"{commit_prefix} {params.get('build_type')} {version_name_clean} ({build_number}){commit_env}"
+    commit_message = (
+        f"{commit_prefix}{commit_flavor} {params.get('build_type')} "
+        f"{version_name_clean} ({build_number}){commit_env}"
+    )
     
     logger.info(f"Commituji: {commit_message}")
     execute_command(['git', 'add', '.'], logger)
