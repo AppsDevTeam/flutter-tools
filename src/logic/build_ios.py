@@ -2,6 +2,7 @@
 import os
 import shutil
 import glob
+import plistlib
 import stat
 
 # Importujeme konstanty a funkce
@@ -22,32 +23,133 @@ def _resolve_ios_plist_path(flavor, env, env_vars):
         
     return env_vars.get("IOS_PLIST_DEFAULT")
 
-def _find_upload_symbols_script(logger):
-    """Najde cestu k binárce upload-symbols (CocoaPods)."""
-    # 1. Standardní cesta pro CocoaPods
-    pods_path = os.path.join('ios', 'Pods', 'FirebaseCrashlytics', 'upload-symbols')
-    if os.path.exists(pods_path):
-        return pods_path
-    
-    # 2. Pokus o nalezení pro SPM (Swift Package Manager) - složitější, protože cesta je dynamická
-    # Zde bychom ideálně potřebovali prohledat DerivedData, ale to je bez Xcode env vars těžké.
-    # Zkusíme alespoň vyhledat v typických cestách, pokud by to bylo lokálně.
-    
-    logger.warn("Skript 'upload-symbols' nebyl nalezen v Pods. Pokud používáte SPM, automatické nahrání nemusí fungovat.")
-    return None
+# Cesta k upload-symbols uvnitř SPM checkoutu firebase-ios-sdk. Na rozdíl od
+# CocoaPods, kde binárka leží na pevném místě v projektu, se u SPM checkouty
+# vytvářejí dynamicky - buď v build adresáři, který si řídí Flutter, nebo
+# v Xcode DerivedData.
+_SPM_SCRIPT_SUFFIX = os.path.join(
+    'SourcePackages', 'checkouts', 'firebase-ios-sdk', 'Crashlytics', 'upload-symbols'
+)
 
-def _find_latest_xcarchive(logger):
-    """Najde nejnovější vytvořený .xcarchive."""
-    archive_dir = os.path.join('build', 'ios', 'archive')
-    pattern = os.path.join(archive_dir, '*.xcarchive')
-    
-    candidates = glob.glob(pattern)
+
+def _xcode_project_name():
+    """Jméno Xcode projektu v 'ios' bez přípony, nebo None když žádný není."""
+    candidates = sorted(glob.glob(os.path.join('ios', '*.xcodeproj')))
+
     if not candidates:
         return None
-    
-    # Seřadíme podle času změny (nejnovější nakonec) a vrátíme poslední
-    latest = max(candidates, key=os.path.getmtime)
-    return latest
+
+    return os.path.splitext(os.path.basename(candidates[0]))[0]
+
+
+def _upload_symbols_search_paths():
+    """Cesty a globy, ve kterých se hledá upload-symbols, od nejspolehlivější."""
+    paths = [
+        # CocoaPods - pevná cesta v projektu.
+        os.path.join('ios', 'Pods', 'FirebaseCrashlytics', 'upload-symbols'),
+        # SPM - checkouts v build adresáři pod správou Flutteru.
+        os.path.join('build', 'ios', '*', _SPM_SCRIPT_SUFFIX),
+        os.path.join('build', 'ios', _SPM_SCRIPT_SUFFIX),
+        os.path.join('build', _SPM_SCRIPT_SUFFIX),
+    ]
+
+    # DerivedData je poslední záchrana a leží mimo projekt, proto ji zužujeme na
+    # adresáře tohoto projektu (Runner-<hash>). Bez toho by se v projektu bez
+    # Firebase vzala binárka z cizího projektu, který ve DerivedData zrovna leží.
+    project_name = _xcode_project_name()
+
+    if project_name:
+        paths.append(
+            os.path.join(
+                os.path.expanduser('~'), 'Library', 'Developer', 'Xcode', 'DerivedData',
+                f'{project_name}-*', _SPM_SCRIPT_SUFFIX,
+            )
+        )
+
+    return paths
+
+
+def _find_upload_symbols_script(logger):
+    """
+    Najde binárku upload-symbols v CocoaPods i v SPM layoutu.
+
+    Dřív se koukalo jen do 'ios/Pods', takže po přechodu projektu na SPM se
+    symboly tiše přestaly nahrávat a iOS crashe se v Crashlytics neobjevily -
+    bez dSYM je Crashlytics neumí zpracovat a issue vůbec nezaloží.
+    """
+    search_paths = _upload_symbols_search_paths()
+
+    for pattern in search_paths:
+        # Nejnovější první: po přechodu mezi Pods a SPM nebo po víc buildech
+        # může na disku zbýt několik checkoutů a ten starý by nahrál symboly
+        # k jiné verzi SDK.
+        matches = sorted(
+            (path for path in glob.glob(pattern) if os.path.isfile(path)),
+            key=os.path.getmtime,
+            reverse=True,
+        )
+
+        if matches:
+            logger.info(f"Nalezena binárka upload-symbols: {matches[0]}")
+            return matches[0]
+
+    logger.error(
+        "Binárka 'upload-symbols' nebyla nalezena v CocoaPods ani v SPM checkouts, "
+        "symboly se NEnahrají a iOS crashe se v Crashlytics neobjeví. Prohledáno:\n  "
+        + "\n  ".join(search_paths)
+    )
+    return None
+
+def _read_archive_version(archive_path):
+    """Vrátí (verze, build) z Info.plist archivu, nebo (None, None)."""
+    try:
+        with open(os.path.join(archive_path, 'Info.plist'), 'rb') as handle:
+            info = plistlib.load(handle)
+    except Exception:
+        return None, None
+
+    properties = info.get('ApplicationProperties') or {}
+
+    return properties.get('CFBundleShortVersionString'), properties.get('CFBundleVersion')
+
+
+def _find_latest_xcarchive(logger, version_name=None, build_number=None):
+    """
+    Najde archiv právě dokončeného buildu.
+
+    Prioritně v 'build/ios/archive', kam ho ukládá 'flutter build ipa'. Když tam
+    není - typicky protože se archivovalo z Xcode - zkusí Xcode Archives. Tam
+    ale leží archivy všech projektů, takže se berou jen ty, které odpovídají
+    buildované verzi; bez znalosti verze se tahle záloha přeskočí.
+    """
+    flutter_candidates = glob.glob(os.path.join('build', 'ios', 'archive', '*.xcarchive'))
+
+    if flutter_candidates:
+        return max(flutter_candidates, key=os.path.getmtime)
+
+    if not version_name or not build_number:
+        return None
+
+    xcode_pattern = os.path.join(
+        os.path.expanduser('~'), 'Library', 'Developer', 'Xcode', 'Archives', '*', '*.xcarchive'
+    )
+
+    matching = [
+        candidate for candidate in glob.glob(xcode_pattern)
+        if _read_archive_version(candidate) == (str(version_name), str(build_number))
+    ]
+
+    if not matching:
+        return None
+
+    newest = max(matching, key=os.path.getmtime)
+
+    logger.info(
+        f"V 'build/ios/archive' archiv není, použit z Xcode Archives "
+        f"({version_name}+{build_number}): {newest}"
+    )
+
+    return newest
 
 def run_ios_tasks_pre_build(logger, params, env_vars):
     """
@@ -119,17 +221,26 @@ def run_ios_tasks_post_build(logger, params, env_vars, actions_performed):
         logger.error("Nahrání symbolů selhalo: Skript 'upload-symbols' nenalezen.")
         return None
     
-    # Ujistíme se, že je skript spustitelný
-    try:
-        st = os.stat(upload_script)
-        os.chmod(upload_script, st.st_mode | stat.S_IEXEC)
-    except Exception as e:
-        logger.warn(f"Nepodařilo se nastavit executable flag pro skript: {e}")
+    # Ujistíme se, že je skript spustitelný. SPM checkouty bývají read-only,
+    # ale binárka v nich už executable je - chmod by tam jen zbytečně selhal.
+    if not os.access(upload_script, os.X_OK):
+        try:
+            st = os.stat(upload_script)
+            os.chmod(upload_script, st.st_mode | stat.S_IEXEC)
+        except Exception as e:
+            logger.warn(f"Nepodařilo se nastavit executable flag pro skript: {e}")
 
     # 2. Najít nejnovější archiv
-    archive_path = _find_latest_xcarchive(logger)
+    archive_path = _find_latest_xcarchive(
+        logger,
+        version_name=params.get("_version_name"),
+        build_number=params.get("_build_number"),
+    )
     if not archive_path:
-        logger.error("Nahrání symbolů selhalo: Žádný .xcarchive nenalezen v build/ios/archive/.")
+        logger.error(
+            "Nahrání symbolů selhalo: žádný .xcarchive nenalezen v 'build/ios/archive/' "
+            "ani mezi Xcode Archives pro buildovanou verzi."
+        )
         return None
     
     logger.info(f"Nalezen archiv: {archive_path}")
