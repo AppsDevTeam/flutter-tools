@@ -6,7 +6,7 @@ import re
 import platform
 
 from .build_common import execute_command, resolve_value, get_package_name
-from .android_snapshot_check import verify_dart_snapshots
+from .android_snapshot_check import verify_dart_snapshots, normalized_name
 from ..constants import KEY_BUILD_TYPE, KEY_FLAVOR, KEY_ENV, KEY_BUILD_MODE, \
     KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS
 
@@ -50,44 +50,106 @@ def _find_output_file(logger, candidates):
                         
     return None
 
-# Adresáře s hotovými artefakty, které se před buildem vyprazdňují.
-#
-# `find_and_rename_output` přejmenovává artefakt přímo v output adresáři na
-# <package>-v<verze>(<build>)-<mode>.<ext>, takže tam po každém releasu zůstane
-# ležet další soubor. Flutter 3.44+ na tom u release appbundle buildu selže:
-# ověřuje, že AGP odstripoval debug symboly, a AAB si k tomu najde tak, že vezme
-# PRVNÍ *release.aab ve výpisu adresáře (findBundleFile v gradle.dart). Když padne
-# na artefakt ze staršího toolchainu, který v BUNDLE-METADATA nemá libapp.so.sym,
-# build skončí na "Release app bundle failed to strip debug symbols" — přesto, že
-# právě vyrobený AAB je v pořádku.
-#
-# Maže se celý obsah pro daný typ artefaktu, ne jen aktuální varianta: všechno
-# v build/app/outputs/ je výstup předchozích buildů a znovu se vyrobí.
-STALE_ARTIFACT_GLOBS = {
-    "appbundle": [
-        os.path.join("build", "app", "outputs", "bundle", "**", "*.aab"),
-    ],
-    "aab": [
-        os.path.join("build", "app", "outputs", "bundle", "**", "*.aab"),
-    ],
+OUTPUTS_DIR = os.path.join("build", "app", "outputs")
+
+# Široké vzory, které se použijí jen tehdy, když se varianta nedá poskládat (chybí mode).
+# Bez nich by v takovém případě ochrana proti strip-checku zmizela úplně.
+FALLBACK_ARTIFACT_GLOBS = {
+    "appbundle": [os.path.join(OUTPUTS_DIR, "bundle", "**", "*.aab")],
+    "aab": [os.path.join(OUTPUTS_DIR, "bundle", "**", "*.aab")],
     "apk": [
-        os.path.join("build", "app", "outputs", "apk", "**", "*.apk"),
-        os.path.join("build", "app", "outputs", "flutter-apk", "*.apk"),
+        os.path.join(OUTPUTS_DIR, "apk", "**", "*.apk"),
+        os.path.join(OUTPUTS_DIR, "flutter-apk", "*.apk"),
     ],
 }
 
 
-def purge_stale_artifacts(logger, build_type):
+def _matching_dirs(parent, name):
     """
-    Smaže artefakty z předchozích buildů, aby v output adresáři zůstal po buildu
-    jen ten právě vyrobený.
+    Podadresáře `parent`, jejichž jméno odpovídá `name` bez ohledu na zápis.
+
+    AGP jméno varianty občas zapíše jinak, než ho složíme (`tapygoprodRelease`
+    vs. `tapygoProdRelease`), a na case-insensitive filesystému se to chová ještě jinak
+    než na Linuxu. Porovnání po normalizaci je proti obojímu imunní.
+    """
+    if not name or not os.path.isdir(parent):
+        return []
+
+    target = normalized_name(name)
+
+    return [
+        d for d in sorted(glob.glob(os.path.join(parent, "*")))
+        if os.path.isdir(d) and normalized_name(os.path.basename(d)) == target
+    ]
+
+
+def _stale_artifact_globs(build_type, flavor, env, mode):
+    """
+    Vrátí glob vzory pro artefakty PŘEDCHOZÍCH buildů téže varianty.
+
+    Maže se výhradně to, co by se s výstupem tohohle buildu dalo zaměnit — tedy adresář
+    aktuální varianty. Artefakty jiných flavorů jsou platný výstup, na který se nesahá:
+    `findBundleFile` matchuje podle jména nadřazeného adresáře (`<flavor><mode>`), takže
+    na cizí variantu nikdy nesáhne, a `_find_output_file` řadí kandidáty podle mtime.
+    Výjimkou je plochý `flutter-apk/`, společný pro všechny varianty — tam se filtruje
+    podle jména souboru.
+    """
+    mode_lc = (mode or "").lower()
+
+    if not mode_lc:
+        return FALLBACK_ARTIFACT_GLOBS.get(build_type, [])
+
+    combined = f"{flavor}{_camel_case(env)}" if flavor else ""
+
+    if build_type in ("appbundle", "aab"):
+        variant = f"{combined}{_camel_case(mode_lc)}" if combined else mode_lc
+
+        return [
+            os.path.join(d, "*.aab")
+            for d in _matching_dirs(os.path.join(OUTPUTS_DIR, "bundle"), variant)
+        ]
+
+    if build_type == "apk":
+        patterns = []
+        apk_dir = os.path.join(OUTPUTS_DIR, "apk")
+
+        # AGP v3+ vkládá flavor do cesty, bez flavoru je tam jen build type.
+        for flavor_dir in _matching_dirs(apk_dir, combined) or [apk_dir]:
+            patterns += [
+                os.path.join(d, "*.apk") for d in _matching_dirs(flavor_dir, mode_lc)
+            ]
+
+        # Flutter kopíruje do flutter-apk/ jako `app-<flavor>-<mode>.apk` (listApkPaths),
+        # adt to přejmenuje na `<package>-v…-<flavor>-<env>-<mode>.apk`. Oba vzory mají
+        # flavor uvnitř jména a končí modem, proto se matchuje na příponu.
+        suffix = f"*{flavor.lower()}*-{mode_lc}.apk" if flavor else f"*-{mode_lc}.apk"
+        patterns.append(os.path.join(OUTPUTS_DIR, "flutter-apk", suffix))
+
+        return patterns
+
+    return []
+
+
+def purge_stale_artifacts(logger, build_type, flavor=None, env=None, mode=None):
+    """
+    Smaže artefakty předchozích buildů TÉŽE varianty, aby v output adresáři zůstal
+    po buildu jen ten právě vyrobený. Výstupy ostatních flavorů zůstávají.
+
+    Důvod, proč to nestačí nechat na Flutteru: Flutter 3.44+ u release appbundle ověřuje,
+    že AGP odstripoval debug symboly, a AAB si k tomu najde přes `findBundleFile`
+    (gradle.dart) — ta prochází výpis adresáře a vezme první *release.aab, bez ohledu na
+    čas vzniku. Na přejmenovaném artefaktu ze staršího toolchainu, který v BUNDLE-METADATA
+    nemá libapp.so.sym, build skončí na "Release app bundle failed to strip debug symbols",
+    přesto že právě vyrobený AAB je v pořádku. U APK Flutter tenhle problém nemá,
+    `findApkFilesModule` sahá na přesné jméno souboru; tam jde jen o to, aby v adresáři
+    nezůstávala hromada starých buildů.
 
     Volá se před spuštěním Flutter buildu. Neúspěšné mazání se jen zaloguje,
     build kvůli němu padat nemá.
     """
     removed = []
 
-    for pattern in STALE_ARTIFACT_GLOBS.get(build_type, []):
+    for pattern in _stale_artifact_globs(build_type, flavor, env, mode):
         for path in sorted(glob.glob(pattern, recursive=True)):
             if not os.path.isfile(path):
                 continue

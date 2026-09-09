@@ -194,7 +194,7 @@ def run_flutter_build_logic(params, logger):
     # Přejmenované artefakty se v output adresáři hromadí a Flutter si při kontrole
     # odstripovaných debug symbolů umí vybrat ten starý (viz purge_stale_artifacts).
     if build_type in ['apk', 'appbundle']:
-        purge_stale_artifacts(logger, build_type)
+        purge_stale_artifacts(logger, build_type, flavor, env, build_mode)
 
     # 5.5 Vyčištění Gradle cache sloučených nativních knihoven
     # AGP je merguje inkrementálně a umí do artefaktu zabalit libapp.so z předchozího
