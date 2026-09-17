@@ -14,7 +14,7 @@ Runs a parametrised Flutter build with all the steps you would normally chain by
 
 - **Targets**: `apk`, `appbundle`, `ipa`, `web`, `macos`, `linux`, `windows`.
 - **Modes**: `release`, `debug`, `profile`.
-- **Flavors and environments** resolved from `adt_tools_config.env` — `FIREBASE_APP_ID`, `IOS_PLIST_*`, `DART_DEFINES_*` are picked per `<flavor>_<env>` and copied / passed to the Flutter command.
+- **Flavors and environments** resolved from `adt_tools_config.env` — `FIREBASE_APP_ID`, `IOS_PLIST_*`, `DART_DEFINES_*` and `DART_DEFINE_FILES` are picked per `<flavor>_<env>` and copied / passed to the Flutter command.
 - **Version bumping**: `major` / `minor` / `patch` / `build` directly in `pubspec.yaml`, with automatic revert if the build fails.
 - **CHANGELOG.md update** — appends the new version with the bumped number.
 - **Obfuscation** toggle (`--obfuscate --split-debug-info`) for mobile builds.
@@ -58,6 +58,12 @@ FIREBASE_APP_ID_cashdesk_prerelease="1:..."
 # Per-flavor / per-env dart defines
 DART_DEFINES_SHOW_BANNER_prod=false
 DART_DEFINES_SHOW_BANNER_prerelease=true
+
+# Per-flavor / per-env dart defines loaded from a file (--dart-define-from-file).
+# Use it for a group of values that belong together and must not leak into another
+# flavor's build; the same file can be referenced from the IDE's launch config, so
+# the values live in one place only. Missing file fails the build.
+DART_DEFINE_FILES_tapygo=dart_defines/tapygo.json
 
 # Per-flavor / per-env GoogleService-Info.plist
 IOS_PLIST_DEFAULT=ios/Firebase/GoogleService-Info.plist
