@@ -23,6 +23,11 @@ ADT_TOOLS_ENV_EXAMPLE = """PACKAGE_NAME=\"com.vasetvafirma.vasappka\"
 # DART_DEFINES_SHOW_BANNER_prod=false
 # DART_DEFINES_SHOW_BANNER_prerelease=true
 
+# Ukázka dart defines načtených ze souboru (--dart-define-from-file).
+# Vhodné pro skupinu hodnot, které patří k sobě a nesmí se dostat do buildu
+# jiného flavoru; na stejný soubor se pak odkáže i launch.json v IDE.
+# DART_DEFINE_FILES_tapygo=dart_defines/tapygo.json
+
 # Ukázka google services pro flavors
 # IOS_PLIST_DEFAULT=ios/Firebase/GoogleService-Info.plist
 # IOS_PLIST_tapygo_prod=ios/Firebase/GoogleService-Info-Tapygo.plist

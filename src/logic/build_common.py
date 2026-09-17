@@ -129,7 +129,29 @@ def resolve_dart_defines(logger, flavor, env, env_vars):
         if value is not None:
             logger.info(f"   -> {base_key} = {value}")
             dart_defines.append(f"--dart-define={base_key}={value}")
-            
+
+    # DART_DEFINE_FILES sype do buildu cely .json/.env soubor pres
+    # --dart-define-from-file. Hodi se na skupinu hodnot, ktere patri k sobe a
+    # nesmi se dostat do buildu jineho flavoru (napr. demo ucet jednoho produktu).
+    # Oproti vypisu jednotlivych DART_DEFINES_* klicu tim hodnoty zustanou na
+    # jednom miste, na ktere se odkazuje i launch.json v IDE.
+    #
+    # Prefix se zamerne lisi od "DART_DEFINES_", takze tenhle klic neprojde
+    # scanem vyse ("DART_DEFINE_FILES_x".startswith("DART_DEFINES_") je False).
+    #
+    # Flavor, ktery klic nema, nedostane nic — resolve_value vrati None a zadny
+    # argument se neprida.
+    define_file = resolve_value("DART_DEFINE_FILES", flavor, env, env_vars)
+    if define_file:
+        if os.path.exists(define_file):
+            logger.info(f"   -> dart-define-from-file = {define_file}")
+            dart_defines.append(f"--dart-define-from-file={define_file}")
+        else:
+            # Tise preskocit nelze: build by probehl, jen by v nem chybely hodnoty
+            # a projevilo by se to az za behu aplikace.
+            logger.error(f"DART_DEFINE_FILES odkazuje na neexistujici soubor: {define_file}")
+            raise FileNotFoundError(define_file)
+
     return dart_defines
 
 def get_version_from_pubspec(logger, log=True):
