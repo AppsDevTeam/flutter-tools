@@ -18,7 +18,7 @@ from ..constants import (
     KEY_FLAVOR, KEY_ENV, KEY_BUMP_STRATEGY, BUMP_NONE, BUMP_MAJOR, 
     BUMP_MINOR, BUMP_PATCH, BUMP_BUILD, KEY_GIT_PUSH, 
     KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS, KEY_INSTALL_COCOAPODS,
-    KEY_CHECK_SQLITE_WEB, KEY_UPDATE_CHANGELOG
+    KEY_CHECK_SQLITE_WEB, KEY_UPDATE_CHANGELOG, KEY_CHANGELOG_VIA_CLAUDE
 )
 
 class MainWindow(tk.Toplevel):
@@ -213,6 +213,9 @@ class MainWindow(tk.Toplevel):
             KEY_UPDATE_CHANGELOG: tk.BooleanVar(
                 value=manual_settings.get(KEY_UPDATE_CHANGELOG, False)
             ),
+            KEY_CHANGELOG_VIA_CLAUDE: tk.BooleanVar(
+                value=manual_settings.get(KEY_CHANGELOG_VIA_CLAUDE, False)
+            ),
         }
         
         # 3. Až teď zapneme sledování změn (trace)
@@ -298,6 +301,14 @@ class MainWindow(tk.Toplevel):
 
         self._create_checkbox(checkbox_subframe, "Nahrát na Git (Push)", KEY_GIT_PUSH)
         self._create_checkbox(checkbox_subframe, "Aktualizovat CHANGELOG.md", KEY_UPDATE_CHANGELOG)
+        # Podvolba changelogu: Claude sepíše záznam podle .claude/commands/release-notes.md
+        # v projektu; když selže, nástroj spadne na výpis git log jako dosud.
+        self.changelog_claude_check = self._create_checkbox(
+            checkbox_subframe,
+            "Sepsat přes Claude (jinak výpis git log)",
+            KEY_CHANGELOG_VIA_CLAUDE,
+            padx=(20, 0)
+        )
         self._create_checkbox(checkbox_subframe, "Instalovat Cocoapods (pro iOS)", KEY_INSTALL_COCOAPODS)
 
         # ... (zbytek: obfuscate_frame, web_frame, konzole, tlačítko) ...
@@ -333,6 +344,7 @@ class MainWindow(tk.Toplevel):
         # Navázání logiky (beze změny)
         self.build_vars[KEY_BUILD_TYPE].trace_add("write", self._update_build_ui_state)
         self.build_vars[KEY_DISABLE_OBFUSCATION].trace_add("write", self._update_build_ui_state)
+        self.build_vars[KEY_UPDATE_CHANGELOG].trace_add("write", self._update_build_ui_state)
         self._update_build_ui_state()
         self.build_vars[KEY_BUILD_TYPE].trace_add("write", lambda *args: self._update_build_ui_state())
         self.build_vars[KEY_DISABLE_OBFUSCATION].trace_add("write", lambda *args: self._update_build_ui_state())
@@ -479,6 +491,13 @@ class MainWindow(tk.Toplevel):
                 self.symbols_check.config(state="disabled")
                 # Volitelně můžeme nastavit vizuálně, že je to vypnuté, 
                 # ale hodnotu v proměnné měnit nemusíme, logika to bude ignorovat.
+
+            # Claude má smysl jen když se changelog vůbec aktualizuje
+            if self.build_vars[KEY_UPDATE_CHANGELOG].get():
+                self.changelog_claude_check.config(state="normal")
+            else:
+                self.changelog_claude_check.config(state="disabled")
+                self.build_vars[KEY_CHANGELOG_VIA_CLAUDE].set(False)
 
             # Logika pro Web
             if build_type == "web":

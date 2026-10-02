@@ -7,7 +7,8 @@ from ..constants import (
     KEY_BUILD_TYPE, KEY_BUILD_MODE, KEY_FLAVOR, KEY_ENV,
     KEY_BUMP_STRATEGY, BUMP_NONE,
     KEY_GIT_PUSH, KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS,
-    KEY_INSTALL_COCOAPODS, KEY_CHECK_SQLITE_WEB, KEY_UPDATE_CHANGELOG
+    KEY_INSTALL_COCOAPODS, KEY_CHECK_SQLITE_WEB, KEY_UPDATE_CHANGELOG,
+    KEY_CHANGELOG_VIA_CLAUDE
 )
 from .build_common import (
     execute_command, parse_env_file, resolve_dart_defines,
@@ -63,6 +64,7 @@ def run_flutter_build_logic(params, logger):
     logger.info(
         f"📋 Build flags: git_push={params.get(KEY_GIT_PUSH, False)}, "
         f"update_changelog={params.get(KEY_UPDATE_CHANGELOG, False)}, "
+        f"changelog_via_claude={params.get(KEY_CHANGELOG_VIA_CLAUDE, False)}, "
         f"bump={params.get(KEY_BUMP_STRATEGY, BUMP_NONE)}, "
         f"obfuscation={'OFF' if params.get(KEY_DISABLE_OBFUSCATION, False) else 'ON'}, "
         f"symbols={params.get(KEY_UPLOAD_SYMBOLS, False)}, "
@@ -105,7 +107,11 @@ def run_flutter_build_logic(params, logger):
 
     # --- KROK 3.5: Aktualizace CHANGELOG.md ---
     if params.get(KEY_UPDATE_CHANGELOG, False):
-        if update_changelog(logger, version_name, build_number):
+        if update_changelog(
+            logger, version_name, build_number,
+            via_claude=params.get(KEY_CHANGELOG_VIA_CLAUDE, False),
+            env_vars=env_vars,
+        ):
             actions_performed["changelog"] = True
         else:
             logger.warn("Aktualizace changelogu selhala — pokračuji v buildu.")

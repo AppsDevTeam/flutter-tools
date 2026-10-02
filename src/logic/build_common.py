@@ -8,6 +8,7 @@ import glob
 from datetime import date
 
 from ..constants import ADT_PROJECT_CONFIG_FILENAME, KEY_FLAVOR
+from .release_notes import write_release_notes_with_claude
 
 CHANGELOG_FILENAME = "CHANGELOG.md"
 
@@ -264,7 +265,7 @@ def revert_pubspec_version(logger, original_version_line):
     except Exception as e:
         logger.error(f"Kritická chyba při rollbacku verze: {e}")
 
-def update_changelog(logger, version_name, build_number):
+def update_changelog(logger, version_name, build_number, via_claude=False, env_vars=None):
     """
     Doplní do CHANGELOG.md sekci pro aktuální verzi+build_number.
 
@@ -272,6 +273,9 @@ def update_changelog(logger, version_name, build_number):
     - Pokud sekce pro stejnou verzi+build_number už existuje, NIC nedělá
       (idempotence — opakovaný build téže verze, např. apk → ipa → appbundle,
       nepřidá entry vícekrát).
+    - via_claude=True: záznam nejdřív zkusí sepsat Claude podle pravidel
+      v .claude/commands/release-notes.md projektu (viz release_notes.py).
+      Když to z jakéhokoli důvodu nevyjde, pokračuje se výpisem git log níže.
     - Range commitů = od posledního commitu, který modifikoval CHANGELOG.md,
       do HEAD (resp. od počátku repa, pokud nikdy nebyl modifikován).
     - Z range vyhazuje vlastní tool commity (Version, Symbols, Cocoapods, ...).
@@ -296,6 +300,16 @@ def update_changelog(logger, version_name, build_number):
         if section_header in existing:
             logger.info(f"ℹ️ Sekce [{new_version_str}] už v {CHANGELOG_FILENAME} existuje — přeskakuji.")
             return True
+
+    if via_claude:
+        if write_release_notes_with_claude(logger, new_version_str, env_vars):
+            return True
+        logger.info("ℹ️ Pokračuji výpisem commitů z git log.")
+        # Claude mohl soubor rozepsat a skončit v půlce — výpis se skládá nad
+        # tím, co je na disku teď, ne nad verzí načtenou před jeho během.
+        if os.path.exists(CHANGELOG_FILENAME):
+            with open(CHANGELOG_FILENAME, 'r', encoding='utf-8') as f:
+                existing = f.read()
 
     # Range: od posledního commitu modifikujícího CHANGELOG.md do HEAD.
     # Pokud soubor v gitu nikdy nebyl, rangem je celá historie.
