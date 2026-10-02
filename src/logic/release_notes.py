@@ -25,6 +25,16 @@ from ..constants import (
 
 CHANGELOG_FILENAME = "CHANGELOG.md"
 COMMAND_DIR = os.path.join(".claude", "commands")
+
+# Commity, které generuje sám nástroj (bump verze, symbols, iOS build...). V changelogu
+# se nevypisují, ale označují hranice vydaných verzí: "Version tapygo apk 1.15.20 (243) -prod".
+TOOL_COMMIT_PREFIXES_REGEX = r'^(Version|Web Build|Desktop Build|Symbols|Cocoapods|Build) '
+_VERSION_COMMIT_RE = re.compile(
+    r'^(?:Version|Web Build|Desktop Build|Symbols|Cocoapods|Build)\b.*?(\d+\.\d+\.\d+) \((\d+)\)(?: -(\S+))?'
+)
+# Env, jehož buildy nejsou vydání: verze, která má v rozsahu jen tyhle tool commity,
+# vlastní sekci nedostane a její commity spadnou do následující vydané verze.
+_NON_RELEASE_ENVS = {"prerelease"}
 COMMAND_FILE = os.path.join(COMMAND_DIR, f"{RELEASE_NOTES_COMMAND_NAME}.md")
 
 # GUI spuštěné z Finderu/Docku má minimální PATH (bez ~/.local/bin ani Homebrew),
@@ -43,11 +53,15 @@ _EXTRA_BIN_DIRS = [
 # bez něj se za Jira považuje každý kód KLÍČ-123) v adt_tools_config.env.
 COMMAND_TEMPLATE = """---
 description: Dopíše lidsky čitelný záznam nové verze do CHANGELOG.md z commitů od poslední aktualizace changelogu
-argument-hint: <verze např. 1.15.22+245>
+argument-hint: <verze např. 1.15.22+245> [seznam vydaných verzí bez záznamu s rozsahy commitů]
 allowed-tools: Read, Grep, Glob, Edit, Bash(git log:*), Bash(git show:*), Bash(git diff:*), Bash(date:*)
 ---
 
 Připrav release notes pro verzi **$1** do `CHANGELOG.md`.
+
+Celé zadání včetně případného seznamu vydaných verzí bez záznamu:
+
+$ARGUMENTS
 
 Soubor i tento command spravuje build nástroj ADT Flutter Tools (volba „Sepsat přes
 Claude" u aktualizace CHANGELOG.md). Pravidla níže patří projektu — upravuj je tady.
@@ -57,25 +71,34 @@ Claude" u aktualizace CHANGELOG.md). Pravidla níže patří projektu — upravu
 1. Zjisti rozsah commitů. Changelog generuje i build nástroj, takže hranicí není tag,
    ale poslední commit, který měnil `CHANGELOG.md`:
    `git log -1 --format=%H -- CHANGELOG.md`
-2. Vypiš commity od něj a vynech commity samotného build nástroje
-   (`Version …`, `Symbols …`, `Build …`, `Cocoapods …`, `Web Build …`, `Desktop Build …`):
-   `git log <sha>..HEAD --no-merges --invert-grep --extended-regexp --grep='^(Version|Web Build|Desktop Build|Symbols|Cocoapods|Build) ' --pretty=format:'%h %s%n%b%n---'`
+2. Rozděl rozsah podle vydaných verzí. Když zadání obsahuje seznam „Vydané verze bez
+   záznamu" s rozsahy commitů, použij ho beze změny. Jinak si ho odvoď sám: commity
+   build nástroje ve tvaru `Version|Build|Symbols|Cocoapods … X.Y.Z (BUILD) -env`
+   označují vydané verze; hranicí verze je její poslední takový commit, commity mezi
+   dvěma hranicemi patří novější z nich, verze jen s `-prerelease` buildy vlastní sekci
+   nedostane a její commity patří následující vydané verzi. Každá vydaná verze bez
+   záznamu dostane **vlastní sekci** s datem svého build commitu; commity za poslední
+   hranicí patří verzi **$1**. Verze bez vlastních commitů (opakovaný build) má místo
+   odrážek větu „Opakovaný build beze změn v kódu."
+3. Vypiš commity každého rozsahu a vynech commity samotného build nástroje:
+   `git log <od>..<do> --no-merges --invert-grep --extended-regexp --grep='^(Version|Web Build|Desktop Build|Symbols|Cocoapods|Build) ' --pretty=format:'%h %s%n%b%n---'`
    — čti i tělo commitu, bývá v něm důvod změny a verze, ve které se chyba projevila
-3. U commitů, z jejichž předmětu není jasné, co se pro uživatele změnilo (`fix`, `wip`,
+4. U commitů, z jejichž předmětu není jasné, co se pro uživatele změnilo (`fix`, `wip`,
    `oprava crashe`, holá URL tiketu nebo Crashlytics), si **přečti diff**:
    `git show <hash> -- lib/ | head -300` (seznam souborů ze `--stat` nestačí, z názvů
    souborů se obsah změny jen hádá). Tiket z takového commitu patří jen k odrážce
    popisující právě tuto změnu — nikdy ho nepřilepuj k jiné odrážce jen proto, že je
    ve stejném releasu
-4. Pokud sekce `## [$1]` v `CHANGELOG.md` už existuje (nástroj ji založil jako syrový
+5. Pokud sekce `## [$1]` v `CHANGELOG.md` už existuje (nástroj ji založil jako syrový
    výpis `git log`), přepiš její obsah a rozsah commitů vezmi mezi posledními dvěma
    commity, které `CHANGELOG.md` měnily: `git log -2 --format=%H -- CHANGELOG.md`
-5. Přečti si 2–3 nejnovější záznamy v `CHANGELOG.md`. Formát níže má vždy přednost;
+6. Přečti si 2–3 nejnovější záznamy v `CHANGELOG.md`. Formát níže má vždy přednost;
    ze starších záznamů přebírej jen názvy oblastí a tón, a to pouze pokud už tento
    formát mají — syrové výpisy commitů (jedna odrážka na commit bez oblastí), které
    dřív generoval nástroj, nenapodobuj
-6. Nový záznam vlož **nad dosavadní nejnovější záznam** (hned pod úvodní text souboru)
-7. Než skončíš, projdi seznam commitů z kroku 2 ještě jednou a ověř, že každý je
+7. Nové záznamy vlož **nad dosavadní nejnovější záznam** (hned pod úvodní text souboru),
+   nejnovější verze nahoře
+8. Než skončíš, projdi seznam commitů z kroku 3 ještě jednou a ověř, že každý je
    v záznamu zastoupen (vlastní odrážkou, nebo sloučený do jiné); samostatná oprava
    pádu nesmí zmizet sloučením
 
@@ -136,6 +159,75 @@ _JIRA_PROJECTS_RULE = """Jira projekty jsou jen {keys}; jiný kód ve slugu
 _JIRA_RULE_WITHOUT_URL = """- **Jira**: klíč ve tvaru `PROJEKT-123` uveď na konci odrážky jako prostý text; projekt
   nemá v `adt_tools_config.env` nastavené `JIRA_BROWSE_URL`, takže odkaz není kam vést.
   Zkratky jako `SHA-256` nebo `BSD-3` tikety nejsou"""
+
+
+def _git_log(range_arg, invert_tool_commits=False):
+    """Commity rozsahu od nejstaršího: [(sha, datum, předmět)]. Bez merge commitů."""
+    cmd = ['git', '-c', 'core.quotepath=false', 'log', '--no-merges', '--reverse',
+           '--format=%H%x09%ad%x09%s', '--date=short']
+    if invert_tool_commits:
+        cmd += ['--invert-grep', '--extended-regexp', f'--grep={TOOL_COMMIT_PREFIXES_REGEX}']
+    cmd.append(range_arg)
+    out = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8', errors='replace')
+    if out.returncode != 0:
+        return None
+    rows = []
+    for line in out.stdout.splitlines():
+        if line.count('\t') >= 2:
+            sha, date, subject = line.split('\t', 2)
+            rows.append((sha, date, subject))
+    return rows
+
+
+def missing_releases(range_arg, existing=None):
+    """
+    Vydané verze v rozsahu, které dosud nemají záznam — typicky buildy s vypnutým
+    changelogem. Každý tool commit s "X.Y.Z (BUILD)" označuje verzi; hranicí verze je
+    její poslední tool commit (apk → ipa téže verze), commity mezi dvěma hranicemi
+    patří novější z nich. Verze jen s prerelease buildy sekci nedostane.
+
+    `existing` = obsah CHANGELOG.md: verze, která už sekci má (rozsah typicky začíná
+    jejím apk buildem a obsahuje ještě její ipa build), se přeskočí a případné commity
+    mezi jejími buildy připadnou následující verzi, aby se neztratily.
+
+    Vrací (releases, new_start): releases = [{version, date, range}] od nejstarší,
+    new_start = sha, od kterého patří commity nové verzi (None = celý rozsah).
+    """
+    rows = _git_log(range_arg)
+    if not rows:
+        return [], None
+    groups = {}
+    for sha, date, subject in rows:
+        m = _VERSION_COMMIT_RE.match(subject)
+        if not m:
+            continue
+        key = f"{m.group(1)}+{m.group(2)}"
+        group = groups.setdefault(key, {"version": key, "envs": set()})
+        group["sha"], group["date"] = sha, date
+        group["envs"].add(m.group(3) or "")
+    released = [g for g in groups.values() if g["envs"] - _NON_RELEASE_ENVS]
+    order = {sha: i for i, (sha, _, _) in enumerate(rows)}
+    released.sort(key=lambda g: order[g["sha"]])
+
+    start = range_arg.split("..")[0] if ".." in range_arg else None
+    releases = []
+    prev = start
+    for g in released:
+        if existing and f"## [{g['version']}]" in existing:
+            continue
+        releases.append({
+            "version": g["version"], "date": g["date"],
+            "range": f"{prev}..{g['sha']}" if prev else g["sha"],
+        })
+        prev = g["sha"]
+    return releases, prev
+
+
+def raw_section(version_str, date, range_arg):
+    """Sekce changelogu jako výpis předmětů commitů; prázdný rozsah = opakovaný build."""
+    rows = _git_log(range_arg, invert_tool_commits=True) or []
+    body = "\n".join(f"- {subject}" for _, _, subject in rows) or "Opakovaný build beze změn v kódu."
+    return f"## [{version_str}] - {date}\n\n{body}\n\n"
 
 
 def find_claude():
@@ -200,13 +292,15 @@ def changelog_has_section(version_str):
     return re.search(rf"^## \[{re.escape(version_str)}\]", content, re.MULTILINE) is not None
 
 
-def write_release_notes_with_claude(logger, version_str, env_vars):
+def write_release_notes_with_claude(logger, version_str, env_vars, releases=None, new_range=None):
     """
-    Nechá Claude dopsat záznam verze do CHANGELOG.md. Vrací True jen tehdy, když po
-    doběhnutí v souboru hlavička verze opravdu je; všechno ostatní je False a volající
-    má použít výpis git log.
+    Nechá Claude dopsat záznam verze do CHANGELOG.md — a před něj sekce pro vydané
+    verze bez záznamu (`releases` z missing_releases(), `new_range` = rozsah commitů
+    nové verze). Vrací True jen tehdy, když po doběhnutí jsou v souboru hlavičky všech
+    očekávaných verzí; všechno ostatní je False a volající má použít výpis git log.
     """
     env_vars = env_vars or {}
+    releases = releases or []
     claude = find_claude()
     if not claude:
         logger.warn("⚠️ Binárka `claude` nenalezena (PATH ani ~/.local/bin, Homebrew). Release notes přes Claude se přeskakují.")
@@ -219,8 +313,22 @@ def write_release_notes_with_claude(logger, version_str, env_vars):
     effort = env_vars.get("RELEASE_NOTES_EFFORT", RELEASE_NOTES_EFFORT)
     fallback_model = env_vars.get("RELEASE_NOTES_FALLBACK_MODEL", RELEASE_NOTES_FALLBACK_MODEL)
 
+    prompt = f"/{RELEASE_NOTES_COMMAND_NAME} {version_str}"
+    expected = [version_str]
+    if releases:
+        prompt += ("\n\nVydané verze bez záznamu v CHANGELOG.md — každá dostane vlastní sekci, "
+                   "nejstarší vespod, nad nimi teprve " + version_str + ":\n")
+        for r in releases:
+            prompt += f"- {r['version']} ({r['date']}): commity `{r['range']}`\n"
+        expected = [r["version"] for r in releases] + [version_str]
+    if new_range:
+        prompt += f"\nCommity verze {version_str}: `{new_range}`."
+    if releases and not (_git_log(new_range or "HEAD", invert_tool_commits=True) or []):
+        prompt += f"\nPro {version_str} žádné nové commity nejsou, její sekci nepiš."
+        expected = [r["version"] for r in releases]
+
     command = [
-        claude, "-p", f"/{RELEASE_NOTES_COMMAND_NAME} {version_str}",
+        claude, "-p", prompt,
         "--model", model,
         "--effort", effort,
         "--permission-mode", "acceptEdits",
@@ -249,11 +357,12 @@ def write_release_notes_with_claude(logger, version_str, env_vars):
             f"v {ADT_PROJECT_CONFIG_FILENAME}, nebo výchozí hodnotu v nástroji (src/constants.py)."
         )
         return False
-    if not changelog_has_section(version_str):
-        logger.warn(f"⚠️ Claude doběhl, ale v {CHANGELOG_FILENAME} chybí hlavička `## [{version_str}]`. Použije se výpis git log.")
+    missing = [v for v in expected if not changelog_has_section(v)]
+    if missing:
+        logger.warn(f"⚠️ Claude doběhl, ale v {CHANGELOG_FILENAME} chybí hlavička `## [{missing[0]}]`. Použije se výpis git log.")
         return False
 
-    logger.success(f"✅ Release notes pro [{version_str}] napsal Claude ({model}).")
+    logger.success(f"✅ Release notes pro [{'], ['.join(expected)}] napsal Claude ({model}).")
     return True
 
 
