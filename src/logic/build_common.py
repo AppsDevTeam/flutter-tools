@@ -8,14 +8,14 @@ import glob
 from datetime import date
 
 from ..constants import ADT_PROJECT_CONFIG_FILENAME, KEY_FLAVOR
-from .release_notes import write_release_notes_with_claude
+from .release_notes import write_release_notes_with_claude, missing_releases, raw_section, _git_log
 
 CHANGELOG_FILENAME = "CHANGELOG.md"
 
 # Prefixy commit messages, které generuje sám tool (bump verze, symbols upload,
 # web/desktop build commit, atd.). Při generování changelogu je vyřazujeme
 # z `git log`, ať se neopakují jako "user changes" v dalších verzích.
-_TOOL_COMMIT_PREFIXES_REGEX = r'^(Version|Web Build|Desktop Build|Symbols|Cocoapods|Build) '
+_TOOL_COMMIT_PREFIXES_REGEX = r'^(Version|Web Build|Desktop Build|Symbols|Cocoapods|Build) '  # viz release_notes.TOOL_COMMIT_PREFIXES_REGEX
 
 def to_camel_case(s):
     """Převede string (např. 'prerelease') na CamelCase ('Prerelease')."""
@@ -301,16 +301,6 @@ def update_changelog(logger, version_name, build_number, via_claude=False, env_v
             logger.info(f"ℹ️ Sekce [{new_version_str}] už v {CHANGELOG_FILENAME} existuje — přeskakuji.")
             return True
 
-    if via_claude:
-        if write_release_notes_with_claude(logger, new_version_str, env_vars):
-            return True
-        logger.info("ℹ️ Pokračuji výpisem commitů z git log.")
-        # Claude mohl soubor rozepsat a skončit v půlce — výpis se skládá nad
-        # tím, co je na disku teď, ne nad verzí načtenou před jeho během.
-        if os.path.exists(CHANGELOG_FILENAME):
-            with open(CHANGELOG_FILENAME, 'r', encoding='utf-8') as f:
-                existing = f.read()
-
     # Range: od posledního commitu modifikujícího CHANGELOG.md do HEAD.
     # Pokud soubor v gitu nikdy nebyl, rangem je celá historie.
     # `core.quotepath=false` zajistí, že non-ASCII znaky (č, š, ě, ...)
@@ -325,26 +315,38 @@ def update_changelog(logger, version_name, build_number, via_claude=False, env_v
         if last_sha:
             range_arg = f"{last_sha}..HEAD"
 
-    log_cmd = [
-        'git', '-c', 'core.quotepath=false',
-        'log', range_arg,
-        '--no-merges',
-        '--invert-grep',
-        '--extended-regexp',
-        f'--grep={_TOOL_COMMIT_PREFIXES_REGEX}',
-        '--pretty=format:- %s',
-    ]
-    ret_code, log_output = execute_command(log_cmd, logger, log_stdout=False)
-    if ret_code != 0:
+    # Buildy s vypnutým changelogem nechaly v rozsahu vydané verze bez záznamu — každá
+    # dostane vlastní sekci, commity za poslední z nich patří nové verzi.
+    releases, new_start = missing_releases(range_arg, existing)
+    new_range = f"{new_start}..HEAD" if new_start else range_arg
+    for r in releases:
+        logger.info(f"ℹ️ Vydaná verze bez záznamu: {r['version']} ({r['date']}), commity {r['range']}")
+
+    if via_claude:
+        if write_release_notes_with_claude(logger, new_version_str, env_vars, releases=releases, new_range=new_range):
+            return True
+        logger.info("ℹ️ Pokračuji výpisem commitů z git log.")
+        # Claude mohl soubor rozepsat a skončit v půlce — výpis se skládá nad
+        # tím, co je na disku teď, ne nad verzí načtenou před jeho během.
+        if os.path.exists(CHANGELOG_FILENAME):
+            with open(CHANGELOG_FILENAME, 'r', encoding='utf-8') as f:
+                existing = f.read()
+
+    new_commits = _git_log(new_range, invert_tool_commits=True)
+    if new_commits is None:
         logger.error("Nepodařilo se získat git log pro changelog.")
         return False
-
-    commits = log_output.strip()
-    if not commits:
+    if not new_commits and not releases:
         logger.info("ℹ️ Žádné nové uživatelské commity od poslední aktualizace changelogu — sekce nebude přidána.")
         return True
 
-    new_section = f"{section_header} - {today}\n{commits}\n\n"
+    # Nejnovější nahoře: nová verze, pod ní dosud nezapsané vydané verze od nejnovější.
+    sections = []
+    if new_commits:
+        sections.append(raw_section(new_version_str, today, new_range))
+    for r in reversed(releases):
+        sections.append(raw_section(r['version'], r['date'], r['range']))
+    new_section = "".join(sections)
 
     try:
         if existing is None:
@@ -369,7 +371,8 @@ def update_changelog(logger, version_name, build_number, via_claude=False, env_v
         return False
 
     action = "vytvořen" if existing is None else "aktualizován"
-    logger.success(f"✅ {CHANGELOG_FILENAME} {action}, přidána sekce [{new_version_str}].")
+    written = ([new_version_str] if new_commits else []) + [r['version'] for r in reversed(releases)]
+    logger.success(f"✅ {CHANGELOG_FILENAME} {action}, přidány sekce [{'], ['.join(written)}].")
     return True
 
 def perform_git_push(logger, params, version_name, build_number, actions_performed):
