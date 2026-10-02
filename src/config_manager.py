@@ -20,8 +20,34 @@ PRESET_DEFAULTS = {
     KEY_UPLOAD_SYMBOLS: True,
     KEY_INSTALL_COCOAPODS: True,
     KEY_CHECK_SQLITE_WEB: False,
-    KEY_UPDATE_CHANGELOG: False,
-    KEY_CHANGELOG_VIA_CLAUDE: False,
+    KEY_UPDATE_CHANGELOG: True,
+    KEY_CHANGELOG_VIA_CLAUDE: True,
+}
+
+# One-off migrations of config.json, keyed by the version they bring the file to.
+# `_migrate_preset_defaults` only fills in keys that are missing, so it cannot
+# change a default the user already has stored. When a default flips, add a step
+# here: it runs once per config file (the reached version is persisted), and the
+# user's later choices in the UI stay untouched.
+CONFIG_VERSION = 1
+
+
+def _migration_1_changelog_on_everywhere(config_data):
+    """Changelog via Claude became the default; turn it on in every stored preset."""
+    for project_data in config_data.get('projects', {}).values():
+        if not isinstance(project_data, dict):
+            continue
+        presets = project_data.get('build_presets')
+        if not isinstance(presets, dict):
+            continue
+        for settings in presets.values():
+            if isinstance(settings, dict):
+                settings[KEY_UPDATE_CHANGELOG] = True
+                settings[KEY_CHANGELOG_VIA_CLAUDE] = True
+
+
+CONFIG_MIGRATIONS = {
+    1: _migration_1_changelog_on_everywhere,
 }
 
 SRC_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -35,6 +61,8 @@ class ConfigManager:
         self.config_file = config_file
         print(f"--- ConfigManager používá soubor: {self.config_file} ---")
         self.config = self._load_data_from_file()
+        if self._run_migrations():
+            self.save_config()
 
     def _load_data_from_file(self):
         """Načte data ze souboru nebo vrátí výchozí."""
@@ -48,8 +76,35 @@ class ConfigManager:
         config_data.setdefault('projects', {})
         config_data.setdefault('last_project', None)
         config_data.setdefault('last_tab', 0)
-        
+        # A file without the key predates versioning; a brand-new (empty) file
+        # has nothing to migrate and starts at the current version.
+        if 'projects' in config_data and config_data['projects']:
+            config_data.setdefault('config_version', 0)
+        else:
+            config_data.setdefault('config_version', CONFIG_VERSION)
+
         return config_data
+
+    def _run_migrations(self):
+        """
+        Applies every CONFIG_MIGRATIONS step above the stored config_version,
+        in order. Returns True when something ran (caller saves the file).
+        """
+        current = self.config.get('config_version', 0)
+        if not isinstance(current, int) or current < 0:
+            current = 0
+        ran = False
+        for version in sorted(CONFIG_MIGRATIONS):
+            if version <= current:
+                continue
+            print(f"MIGRACE config.json -> v{version}: {CONFIG_MIGRATIONS[version].__doc__}")
+            CONFIG_MIGRATIONS[version](self.config)
+            self.config['config_version'] = version
+            ran = True
+        if self.config.get('config_version', 0) < CONFIG_VERSION:
+            self.config['config_version'] = CONFIG_VERSION
+            ran = True
+        return ran
 
     def save_config(self):
         """Uloží aktuální konfiguraci do souboru."""
