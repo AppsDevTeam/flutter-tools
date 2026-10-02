@@ -39,7 +39,8 @@ _EXTRA_BIN_DIRS = [
 ]
 
 # Šablona slash commandu. {jira_rule} doplní ensure_release_notes_command() podle
-# JIRA_BROWSE_URL v adt_tools_config.env.
+# JIRA_BROWSE_URL a volitelného JIRA_PROJECT_KEYS (čárkami oddělené klíče projektů;
+# bez něj se za Jira považuje každý kód KLÍČ-123) v adt_tools_config.env.
 COMMAND_TEMPLATE = """---
 description: Dopíše lidsky čitelný záznam nové verze do CHANGELOG.md z commitů od poslední aktualizace changelogu
 argument-hint: <verze např. 1.15.22+245>
@@ -124,7 +125,11 @@ Jedna věta o zaměření releasu (jen když je změn víc než zhruba osm).
 _JIRA_RULE_WITH_URL = """- **Jira**: klíč ve tvaru `TAPY-245` připoj na konec odrážky jako odkaz
   ` — [TAPY-245]({url}/TAPY-245)`. Hledej ho v předmětu i těle commitu, včetně
   Trello slugu (`9804-pokladna-tapy-245` → `TAPY-245`) a Jira URL
-  (`selectedIssue=PAY-8` → `PAY-8`). Zkratky jako `SHA-256` nebo `BSD-3` tikety nejsou"""
+  (`selectedIssue=PAY-8` → `PAY-8`). {projects}Zkratky jako `SHA-256` nebo `BSD-3` tikety nejsou"""
+
+_JIRA_PROJECTS_RULE = """Jira projekty jsou jen {keys}; jiný kód ve slugu
+  Trello karty (např. `tvsb-635`) Jira není — odkaz veď na Trello, text odkazu je ten
+  kód: ` — [TVSB-635](https://trello.com/c/xxdgisLj)`. """
 
 _JIRA_RULE_WITHOUT_URL = """- **Jira**: klíč ve tvaru `PROJEKT-123` uveď na konci odrážky jako prostý text; projekt
   nemá v `adt_tools_config.env` nastavené `JIRA_BROWSE_URL`, takže odkaz není kam vést.
@@ -146,7 +151,9 @@ def find_claude():
 def render_command_template(env_vars):
     """Sestaví obsah slash commandu podle hodnot z adt_tools_config.env."""
     jira_url = (env_vars or {}).get("JIRA_BROWSE_URL", "").strip().rstrip("/")
-    jira_rule = _JIRA_RULE_WITH_URL.format(url=jira_url) if jira_url else _JIRA_RULE_WITHOUT_URL
+    keys = [k.strip() for k in (env_vars or {}).get("JIRA_PROJECT_KEYS", "").split(",") if k.strip()]
+    projects = _JIRA_PROJECTS_RULE.format(keys=", ".join(f"`{k}`" for k in keys)) if keys else ""
+    jira_rule = _JIRA_RULE_WITH_URL.format(url=jira_url, projects=projects) if jira_url else _JIRA_RULE_WITHOUT_URL
     return COMMAND_TEMPLATE.replace("{jira_rule}", jira_rule)
 
 
