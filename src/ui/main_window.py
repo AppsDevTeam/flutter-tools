@@ -11,6 +11,7 @@ from ..logic.nbsp_logic import run_add_nbsp_logic
 from ..logic.serializable_logic import run_json_serializable_logic
 from ..logic.build_logic import run_flutter_build_logic
 from ..logic.build_common import get_version_from_pubspec, calculate_bump
+from ..config_manager import PRESET_DEFAULTS
 
 from ..constants import (
     ADT_TOOLS_ENV_EXAMPLE, ADT_PROJECT_CONFIG_FILENAME, PRESET_MANUAL,
@@ -211,10 +212,10 @@ class MainWindow(tk.Toplevel):
                 value=manual_settings.get(KEY_CHECK_SQLITE_WEB, False)
             ),
             KEY_UPDATE_CHANGELOG: tk.BooleanVar(
-                value=manual_settings.get(KEY_UPDATE_CHANGELOG, False)
+                value=manual_settings.get(KEY_UPDATE_CHANGELOG, PRESET_DEFAULTS[KEY_UPDATE_CHANGELOG])
             ),
             KEY_CHANGELOG_VIA_CLAUDE: tk.BooleanVar(
-                value=manual_settings.get(KEY_CHANGELOG_VIA_CLAUDE, False)
+                value=manual_settings.get(KEY_CHANGELOG_VIA_CLAUDE, PRESET_DEFAULTS[KEY_CHANGELOG_VIA_CLAUDE])
             ),
         }
         

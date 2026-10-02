@@ -16,7 +16,7 @@ Runs a parametrised Flutter build with all the steps you would normally chain by
 - **Modes**: `release`, `debug`, `profile`.
 - **Flavors and environments** resolved from `adt_tools_config.env` — `FIREBASE_APP_ID`, `IOS_PLIST_*`, `DART_DEFINES_*` and `DART_DEFINE_FILES` are picked per `<flavor>_<env>` and copied / passed to the Flutter command.
 - **Version bumping**: `major` / `minor` / `patch` / `build` directly in `pubspec.yaml`, with automatic revert if the build fails.
-- **CHANGELOG.md update** — appends the new version with the bumped number, either as a raw `git log` list or written by Claude Code from the project's own rules (see [Release notes via Claude](#release-notes-via-claude)).
+- **CHANGELOG.md update** — appends the new version with the bumped number, either as a raw `git log` list or written by Claude Code from the project's own rules (see [Release notes via Claude](#release-notes-via-claude)). Both are on by default for every preset; untick them per preset to opt out.
 - **Obfuscation** toggle (`--obfuscate --split-debug-info`) for mobile builds.
 - **Dart snapshot verification (Android)** — non-debug `apk` / `appbundle` builds drop the Gradle native-lib merge cache for the variant beforehand, and afterwards every `lib/<abi>/libapp.so` inside the artifact is matched by GNU build-id against the `libapp.so` this build actually produced. A stale snapshot or a missing ABI fails the build instead of shipping an app that runs old Dart code — or crashes on startup on the ABI whose snapshot is missing.
 - **Symbol upload to Firebase Crashlytics** — Android via the Firebase CLI (`crashlytics:symbols:upload`), iOS via the `upload-symbols` script that ships with the FirebaseCrashlytics CocoaPod.
@@ -75,7 +75,7 @@ Keys without a flavor/env suffix are used as a fallback. The tool will create a 
 
 ## Release notes via Claude
 
-With *Aktualizovat CHANGELOG.md* checked, the tool normally inserts a section `## [X.Y.Z+BUILD] - date` followed by one bullet per commit since the last change of `CHANGELOG.md`. Checking *Sepsat přes Claude* instead runs
+*Aktualizovat CHANGELOG.md* and *Sepsat přes Claude* are checked by default in every new preset, and a `config.json` written before this default existed is brought up to it once on start (`config_version` in the file records that the step ran, so a preset you untick afterwards stays unticked). With *Aktualizovat CHANGELOG.md* checked, the tool normally inserts a section `## [X.Y.Z+BUILD] - date` followed by one bullet per commit since the last change of `CHANGELOG.md`. Checking *Sepsat přes Claude* instead runs
 
 ```
 claude -p "/release-notes X.Y.Z+BUILD" --model sonnet --effort medium --fallback-model opus --permission-mode acceptEdits
