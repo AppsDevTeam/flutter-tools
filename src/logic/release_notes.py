@@ -117,6 +117,8 @@ Jedna věta o zaměření releasu (jen když je změn víc než zhruba osm).
   při přesunu účtu"), ne jen co se změnilo v kódu
 - Interní drobnosti (formátování, CI, refactoring, úpravy testů, launch konfigurace)
   shrň do jedné–dvou odrážek v sekci **Infrastruktura**
+- Commity, které mění jen `CHANGELOG.md`, `.claude/commands/release-notes.md` nebo
+  `adt_tools_config.env`, do záznamu nepatří — jsou to úpravy release notes samotných
 - Řádky `Co-Authored-By` v tělech commitů ignoruj
 - **Neměň nic jiného** v souboru (hlavičku, starší záznamy)
 - Po dokončení vypiš jen stručné shrnutí, co jsi do záznamu zahrnul
