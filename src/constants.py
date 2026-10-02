@@ -30,6 +30,7 @@ ADT_TOOLS_ENV_EXAMPLE = """PACKAGE_NAME=\"com.vasetvafirma.vasappka\"
 
 # Odkazy na tikety v release notes psaných přes Claude (viz README, Release notes).
 # JIRA_BROWSE_URL=https://firma.atlassian.net/browse
+# JIRA_PROJECT_KEYS=TAPY,PAY   # jiné kódy v Trello slugu (tvsb-635) pak nejsou Jira
 # Model a effort pro Claude lze per projekt přepsat; výchozí jsou v nástroji.
 # RELEASE_NOTES_MODEL=sonnet
 # RELEASE_NOTES_EFFORT=medium
