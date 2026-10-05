@@ -101,6 +101,10 @@ Claude" u aktualizace CHANGELOG.md). Pravidla níže patří projektu — upravu
 8. Než skončíš, projdi seznam commitů z kroku 3 ještě jednou a ověř, že každý je
    v záznamu zastoupen (vlastní odrážkou, nebo sloučený do jiné); samostatná oprava
    pádu nesmí zmizet sloučením
+9. Projdi v novém záznamu každý odkaz na Trello a k němu celou Trello URL z commitu
+   (předmět i tělo). Obsahuje-li její slug klíč Jira (např. `tapy-<číslo>`), uveď místo
+   odkazu na Trello tiket Jira podle pravidla v sekci Odkazy na tikety — odkaz na Trello
+   smí zůstat jen u karty, jejíž slug klíč Jira nemá
 
 ## Formát záznamu
 
@@ -110,7 +114,7 @@ Claude" u aktualizace CHANGELOG.md). Pravidla níže patří projektu — upravu
 Jedna věta o zaměření releasu (jen když je změn víc než zhruba osm).
 
 **Oblast:**
-- popis změny — [KLÍČ-123](odkaz na tiket)
+- popis změny — [\\[KLÍČ-123\\]](odkaz na tiket)
 ```
 
 - Hlavička musí být přesně `## [$1] - <datum>`; podle ní build nástroj pozná, že záznam
@@ -122,8 +126,11 @@ Jedna věta o zaměření releasu (jen když je změn víc než zhruba osm).
 
 ## Odkazy na tikety
 
+- Hranaté závorky jsou součástí textu odkazu, aby se v náhledu ukázalo `[TAPY-245]`
+  a celé bylo klikatelné — proto se v Markdownu escapují: `[\\[TAPY-245\\]](url)`.
+  Tvar `[TAPY-245](url)` bez escapovaných závorek nepoužívej
 {jira_rule}
-- **Trello**: Trello URL z commitu uveď jako ` — [Trello 9804](https://trello.com/c/8VvgZJmD)`
+- **Trello**: Trello URL z commitu uveď jako ` — [\\[Trello 9804\\]](https://trello.com/c/8VvgZJmD)`
   — text odkazu je číslo karty ze slugu, URL stačí krátká, bez slugu. Když slug karty
   obsahuje klíč Jira (`…-tapy-245`), jde o tutéž věc — uveď jen odkaz na Jira, Trello
   vynech. Trello odkaz tedy zůstává jen u karet bez klíče Jira
@@ -148,13 +155,17 @@ Jedna věta o zaměření releasu (jen když je změn víc než zhruba osm).
 """
 
 _JIRA_RULE_WITH_URL = """- **Jira**: klíč ve tvaru `TAPY-245` připoj na konec odrážky jako odkaz
-  ` — [TAPY-245]({url}/TAPY-245)`. Hledej ho v předmětu i těle commitu, včetně
+  ` — [\\[TAPY-245\\]]({url}/TAPY-245)`. Hledej ho v předmětu i těle commitu, včetně
   Trello slugu (`9804-pokladna-tapy-245` → `TAPY-245`) a Jira URL
-  (`selectedIssue=PAY-8` → `PAY-8`). {projects}Zkratky jako `SHA-256` nebo `BSD-3` tikety nejsou"""
+  (`selectedIssue=PAY-8` → `PAY-8`). {projects}Zkratky jako `SHA-256` nebo `BSD-3` tikety nejsou
+- Klíč Jira hledej v **celém** slugu Trello URL, ať je v předmětu nebo v těle commitu
+  a i když je slug dlouhý nebo URL-kódovaný — např.
+  `https://trello.com/c/V7ry00aP/9821-pokladna-tapy-238-d3-pro-performance-probl%C3%A9m-s-verz%C3%AD-11519`
+  → ` — [\\[TAPY-238\\]]({url}/TAPY-238)`, ne odkaz na Trello"""
 
 _JIRA_PROJECTS_RULE = """Jira projekty jsou jen {keys}; jiný kód ve slugu
   Trello karty (např. `tvsb-635`) Jira není — odkaz veď na Trello, text odkazu je ten
-  kód: ` — [TVSB-635](https://trello.com/c/xxdgisLj)`. """
+  kód: ` — [\\[TVSB-635\\]](https://trello.com/c/xxdgisLj)`. """
 
 _JIRA_RULE_WITHOUT_URL = """- **Jira**: klíč ve tvaru `PROJEKT-123` uveď na konci odrážky jako prostý text; projekt
   nemá v `adt_tools_config.env` nastavené `JIRA_BROWSE_URL`, takže odkaz není kam vést.
