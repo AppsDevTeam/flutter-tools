@@ -265,6 +265,34 @@ def revert_pubspec_version(logger, original_version_line):
     except Exception as e:
         logger.error(f"Kritická chyba při rollbacku verze: {e}")
 
+def snapshot_changelog():
+    """
+    Obsah CHANGELOG.md před aktualizací, aby šel po neúspěšném buildu vrátit
+    (restore_changelog). None = soubor neexistoval.
+    """
+    if not os.path.exists(CHANGELOG_FILENAME):
+        return None
+    with open(CHANGELOG_FILENAME, 'r', encoding='utf-8') as f:
+        return f.read()
+
+def restore_changelog(logger, original_content):
+    """
+    Vrátí CHANGELOG.md do stavu před buildem: původní obsah, nebo soubor smaže,
+    pokud předtím neexistoval. Jinak by po neúspěšném buildu v changelogu zůstala
+    sekce verze, která nevyšla (verze v pubspec.yaml se přitom vrací).
+    """
+    try:
+        if original_content is None:
+            if os.path.exists(CHANGELOG_FILENAME):
+                os.remove(CHANGELOG_FILENAME)
+                logger.warn(f"{CHANGELOG_FILENAME} vytvořený tímto buildem byl smazán.")
+            return
+        with open(CHANGELOG_FILENAME, 'w', encoding='utf-8', newline='\n') as f:
+            f.write(original_content)
+        logger.warn(f"{CHANGELOG_FILENAME} byl vrácen do stavu před buildem.")
+    except Exception as e:
+        logger.error(f"Nepodařilo se vrátit {CHANGELOG_FILENAME}: {e}")
+
 def update_changelog(logger, version_name, build_number, via_claude=False, env_vars=None):
     """
     Doplní do CHANGELOG.md sekci pro aktuální verzi+build_number.
