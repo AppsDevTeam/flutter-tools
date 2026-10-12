@@ -9,7 +9,7 @@ import webbrowser
 from tkinter import messagebox
 
 from .build_common import get_package_name, execute_command, wait_for_paths
-from ..constants import KEY_FLAVOR, KEY_ENV, KEY_BUILD_MODE, KEY_CHECK_SQLITE_WEB
+from ..constants import KEY_FLAVOR, KEY_ENV, KEY_BUILD_MODE, KEY_CHECK_SQLITE_WEB, KEY_GIT_PUSH
 
 def run_web_tasks_pre_build(logger):
     """
@@ -223,8 +223,13 @@ def run_web_tasks_post_build(logger, params, env_vars, actions_performed):
         return None
 
     logger.success("Verifikace OK.")
-    _stage_web_build_to_git(logger)
-    actions_performed["web_added"] = True
+    # Jen s git pushem (jako u desktopu): jinak by build/web zůstal přidaný v indexu
+    # a dostal se do příštího ručního commitu.
+    if params.get(KEY_GIT_PUSH, False):
+        _stage_web_build_to_git(logger)
+        actions_performed["web_added"] = True
+    else:
+        logger.info("Git push je vypnutý — build/web se do gitu nepřidává.")
 
     output_dir = _archive_web_build(logger, params, env_vars)
             
