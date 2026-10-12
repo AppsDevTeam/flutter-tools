@@ -22,8 +22,11 @@ def to_camel_case(s):
     if not s: return ""
     return s[0].upper() + s[1:].lower()
 
-def execute_command(command, logger, title="", working_dir=None, log_stdout=True):
-    """Spustí externí příkaz a loguje jeho výstup."""
+def execute_command(command, logger, title="", working_dir=None, log_stdout=True, extra_env=None):
+    """
+    Spustí externí příkaz a loguje jeho výstup. [extra_env] doplní proměnné prostředí
+    příkazu — tudy jdou tajné hodnoty (tokeny), které se nesmí objevit v logu příkazu.
+    """
     if title:
         logger.header(f"\n--- {title} ---")
     
@@ -38,7 +41,8 @@ def execute_command(command, logger, title="", working_dir=None, log_stdout=True
         process = subprocess.Popen(
             command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, encoding='utf-8', bufsize=1, startupinfo=startupinfo,
-            cwd=working_dir
+            cwd=working_dir,
+            env={**os.environ, **extra_env} if extra_env else None,
         )
         
         output_lines = []

@@ -7,6 +7,7 @@ import stat
 
 # Importujeme konstanty a funkce
 from .build_common import execute_command
+from .crash_reporting import PROVIDER_FIREBASE, PROVIDER_GLITCHTIP, PROVIDER_NONE, GlitchTipSettings, upload_debug_files
 from ..constants import KEY_FLAVOR, KEY_ENV, KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS, KEY_INSTALL_COCOAPODS
 
 def _resolve_ios_plist_path(flavor, env, env_vars):
@@ -177,7 +178,11 @@ def run_ios_tasks_pre_build(logger, params, env_vars):
                 logger.error("Instalace Cocoapods selhala. Build byl přerušen.")
                 return False
     
-    # --- 2. GoogleService-Info.plist ---
+    # --- 2. GoogleService-Info.plist (jen Firebase) ---
+    if params.get("_crash_provider", PROVIDER_FIREBASE) != PROVIDER_FIREBASE:
+        logger.info("Projekt nepoužívá Firebase (CRASH_REPORTING) — GoogleService-Info.plist se nekopíruje.")
+        return True
+
     flavor = params.get(KEY_FLAVOR)
     env = params.get(KEY_ENV)
     
@@ -206,12 +211,21 @@ def run_ios_tasks_pre_build(logger, params, env_vars):
 def run_ios_tasks_post_build(logger, params, env_vars, actions_performed):
     """
     Spustí úlohy specifické pro iOS po úspěšném buildu.
-    Hlavním úkolem je najít dSYMs v archivu a nahrát je na Firebase.
+    Hlavním úkolem je najít dSYMs v archivu a nahrát je do služby pro hlášení pádů
+    (Firebase Crashlytics, nebo GlitchTip i s Dart symboly).
     """
     
     # Kontrola, zda máme nahrávat symboly
     if params.get(KEY_DISABLE_OBFUSCATION, False) or not params.get(KEY_UPLOAD_SYMBOLS, False):
         return None # Nic neděláme
+
+    provider = params.get("_crash_provider", PROVIDER_FIREBASE)
+    if provider == PROVIDER_NONE:
+        logger.info("CRASH_REPORTING=none — symboly se nenahrávají.")
+        return None
+    if provider == PROVIDER_GLITCHTIP:
+        _upload_ios_symbols_to_glitchtip(logger, params, env_vars, actions_performed)
+        return None
 
     logger.header("--- Nahrávám symboly (iOS dSYM) na Firebase ---")
 
@@ -290,3 +304,25 @@ def run_ios_tasks_post_build(logger, params, env_vars, actions_performed):
         logger.warn("V archivu nebyly nalezeny žádné soubory .dSYM.")
             
     return None # iOS nemá přejmenování souboru jako Android, vrací None
+
+
+def _upload_ios_symbols_to_glitchtip(logger, params, env_vars, actions_performed):
+    """dSYM z archivu (nativní část) a Dart symboly z --split-debug-info do GlitchTipu."""
+    logger.header("--- Nahrávám symboly (iOS dSYM a Dart) do GlitchTipu ---")
+    settings = GlitchTipSettings.resolve(logger, params.get(KEY_FLAVOR), params.get(KEY_ENV), env_vars)
+    if not settings:
+        return
+
+    paths = [params.get("_symbols_dir")]
+    archive_path = _find_latest_xcarchive(
+        logger,
+        version_name=params.get("_version_name"),
+        build_number=params.get("_build_number"),
+    )
+    if archive_path:
+        paths.append(os.path.join(archive_path, "dSYMs"))
+    else:
+        logger.warn("Archiv .xcarchive nenalezen — nahrají se jen Dart symboly.")
+
+    if upload_debug_files(logger, settings, paths, "iOS symboly"):
+        actions_performed["symbols"] = True

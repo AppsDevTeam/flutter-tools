@@ -19,7 +19,9 @@ Runs a parametrised Flutter build with all the steps you would normally chain by
 - **CHANGELOG.md update** — appends the new version with the bumped number, either as a raw `git log` list or written by Claude Code from the project's own rules (see [Release notes via Claude](#release-notes-via-claude)). Both are on by default for every preset; untick them per preset to opt out.
 - **Obfuscation** toggle (`--obfuscate --split-debug-info`) for mobile builds.
 - **Dart snapshot verification (Android)** — non-debug `apk` / `appbundle` builds drop the Gradle native-lib merge cache for the variant beforehand, and afterwards every `lib/<abi>/libapp.so` inside the artifact is matched by GNU build-id against the `libapp.so` this build actually produced. A stale snapshot or a missing ABI fails the build instead of shipping an app that runs old Dart code — or crashes on startup on the ABI whose snapshot is missing.
-- **Symbol upload to Firebase Crashlytics** — Android via the Firebase CLI (`crashlytics:symbols:upload`), iOS via the `upload-symbols` script that ships with the FirebaseCrashlytics CocoaPod.
+- **Symbol upload** to the project's crash reporting service, chosen by `CRASH_REPORTING` (see [Crash reporting](#crash-reporting)):
+  - **Firebase Crashlytics** (default) — Android via the Firebase CLI (`crashlytics:symbols:upload`), iOS via the `upload-symbols` script that ships with the FirebaseCrashlytics CocoaPod.
+  - **GlitchTip** — Dart symbols, iOS dSYMs, the Android R8 mapping and web source maps via `sentry-cli`.
 - **CocoaPods install** for iOS (clean reinstall before the build).
 - **Git push** of `pubspec.yaml` and `CHANGELOG.md` after a successful build.
 - **Web extras**: optional check for the `sqlite3.wasm` file expected by some apps.
@@ -73,6 +75,39 @@ IOS_PLIST_cashdesk_prerelease=ios/Firebase/GoogleService-Info-Prerelease.plist
 
 Keys without a flavor/env suffix are used as a fallback. The tool will create a stub file the first time you point it at a project.
 
+## Crash reporting
+
+`CRASH_REPORTING` in `adt_tools_config.env` picks the service that receives symbols: `firebase` (default, the original behaviour), `glitchtip` or `none`. Like other keys it can be set per flavor/env (`CRASH_REPORTING_<flavor>_<env>`).
+
+- **firebase** — `GoogleService-Info.plist` is copied for iOS (`IOS_PLIST_*`, required), symbols go to Crashlytics (`FIREBASE_APP_ID`).
+- **glitchtip** — no Firebase files are needed. With *Nahrát symboly* checked, `sentry-cli` uploads:
+  - Android: Dart symbols from `--split-debug-info` and the R8 `mapping.txt` when the build is minified,
+  - iOS: Dart symbols and the archive's dSYMs,
+  - web: the build runs with `--source-maps`; the maps are uploaded to the release after the local verification and then **deleted from `build/web`**, so they reach neither the server nor git / the ZIP (also when the upload fails).
+- **none** — nothing is uploaded and iOS needs no `GoogleService-Info.plist`.
+
+GlitchTip settings:
+
+```env
+CRASH_REPORTING=glitchtip
+GLITCHTIP_URL=https://glitchtip.yourcompany.com
+GLITCHTIP_ORG=yourcompany
+GLITCHTIP_PROJECT=yourapp
+```
+
+The upload token never goes into the repository: set `SENTRY_AUTH_TOKEN` (or `GLITCHTIP_AUTH_TOKEN`) in the environment the tool runs in, or log `sentry-cli` in once (`~/.sentryclirc`). The tool passes the token to `sentry-cli` through the environment, so it does not appear in the build console.
+
+Symbols are matched to errors by the release name `<PACKAGE_NAME>@<version>+<build>` (e.g. `cz.firma.app@1.2.3+45`). With `glitchtip` every build gets it as `--dart-define=SENTRY_RELEASE=…`; pass it to the SDK:
+
+```dart
+await SentryFlutter.init((options) {
+  options.dsn = '…';
+  options.release = const String.fromEnvironment('SENTRY_RELEASE');
+}, appRunner: …);
+```
+
+The SDK's default release does not match on the web (`package_info` returns the Dart package name there, not the app's package name).
+
 ## Release notes via Claude
 
 *Aktualizovat CHANGELOG.md* and *Sepsat přes Claude* are checked by default in every new preset, and a `config.json` written before this default existed is brought up to it once on start (`config_version` in the file records that the step ran, so a preset you untick afterwards stays unticked). With *Aktualizovat CHANGELOG.md* checked, the tool normally inserts a section `## [X.Y.Z+BUILD] - date` followed by one bullet per commit since the last change of `CHANGELOG.md`. Checking *Sepsat přes Claude* instead runs
@@ -92,7 +127,7 @@ Model choice: `sonnet` at `medium` effort writes well in Czech and groups commit
 ## Requirements
 
 - **Required**: Python 3, Tkinter, Git, Flutter SDK.
-- **Optional**: Firebase CLI (Crashlytics symbol upload), CocoaPods (iOS builds, macOS only), Claude Code CLI logged in (release notes via Claude).
+- **Optional**: Firebase CLI (Crashlytics symbol upload), sentry-cli (GlitchTip symbol and source map upload), CocoaPods (iOS builds, macOS only), Claude Code CLI logged in (release notes via Claude).
 
 ## Setup
 

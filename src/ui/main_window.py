@@ -322,7 +322,9 @@ class MainWindow(tk.Toplevel):
 
         self.symbols_check = self._create_checkbox(
             obfuscate_frame, 
-            "Nahrát symboly na Firebase", 
+            # Služba podle CRASH_REPORTING v adt_tools_config.env (firebase / glitchtip / none);
+            # na webu jen GlitchTip (source mapy).
+            "Nahrát symboly (Firebase / GlitchTip)", 
             KEY_UPLOAD_SYMBOLS, 
             padx=(20, 0)
         )
@@ -486,8 +488,13 @@ class MainWindow(tk.Toplevel):
                     self.build_vars[KEY_UPLOAD_SYMBOLS].set(False)
                 else:
                     self.symbols_check.config(state="normal")
+            elif build_type == 'web':
+                # Web nemá obfuskaci (dart2js kód minifikuje sám); symboly = source mapy pro
+                # GlitchTip (u Firebase se na webu nic nenahrává).
+                self.obfuscate_check.config(state="disabled")
+                self.symbols_check.config(state="normal")
             else:
-                # Pro Web a Desktop obfuskaci a symboly zakážeme
+                # Desktop: obfuskaci a symboly zakážeme
                 self.obfuscate_check.config(state="disabled")
                 self.symbols_check.config(state="disabled")
                 # Volitelně můžeme nastavit vizuálně, že je to vypnuté, 

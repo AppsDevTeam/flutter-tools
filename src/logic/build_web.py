@@ -9,6 +9,7 @@ import webbrowser
 from tkinter import messagebox
 
 from .build_common import get_package_name, execute_command, wait_for_paths
+from .crash_reporting import GlitchTipSettings, release_name, upload_web_source_maps, remove_web_source_maps
 from ..constants import KEY_FLAVOR, KEY_ENV, KEY_BUILD_MODE, KEY_CHECK_SQLITE_WEB, KEY_GIT_PUSH
 
 def run_web_tasks_pre_build(logger):
@@ -228,6 +229,20 @@ def run_web_tasks_post_build(logger, params, env_vars, actions_performed):
         return None
 
     logger.success("Verifikace OK.")
+
+    # GlitchTip: source mapy nahrát k vydání a pak je z build/web smazat (i když nahrání
+    # selže) — na veřejném serveru ani v gitu / ZIPu by z nich šel přečíst zdrojový kód.
+    if params.get("_web_source_maps", False):
+        logger.header("--- Nahrávám source mapy do GlitchTipu ---")
+        settings = GlitchTipSettings.resolve(logger, params.get(KEY_FLAVOR), params.get(KEY_ENV), env_vars)
+        package_name = env_vars.get("PACKAGE_NAME")
+        if settings and package_name:
+            release = release_name(package_name, params.get("_version_name"), params.get("_build_number"))
+            if upload_web_source_maps(logger, settings, release, os.path.join('build', 'web')):
+                actions_performed["symbols"] = True
+        elif not package_name:
+            logger.error("PACKAGE_NAME chybí — source mapy nelze přiřadit k vydání, nenahrávám.")
+        remove_web_source_maps(logger, os.path.join('build', 'web'))
     # Jen s git pushem (jako u desktopu): jinak by build/web zůstal přidaný v indexu
     # a dostal se do příštího ručního commitu.
     if params.get(KEY_GIT_PUSH, False):

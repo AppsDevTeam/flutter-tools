@@ -13,6 +13,17 @@ ADT_TOOLS_ENV_EXAMPLE = """PACKAGE_NAME=\"com.vasetvafirma.vasappka\"
 # Nastavení pro Desktop (macOS, Linux, Windows)
 # DESKTOP_APP_NAME="MojeAplikace"
 
+# Hlášení pádů a nahrávání symbolů: firebase (výchozí) | glitchtip | none.
+# Bez Firebase (glitchtip, none) iOS build nevyžaduje GoogleService-Info.plist.
+# CRASH_REPORTING=firebase
+
+# GlitchTip (CRASH_REPORTING=glitchtip): symboly a source mapy přes sentry-cli.
+# Token nepatří do repozitáře: SENTRY_AUTH_TOKEN v prostředí, nebo ~/.sentryclirc.
+# Aplikace dostane název vydání jako --dart-define=SENTRY_RELEASE (předat do SentryFlutter.init).
+# GLITCHTIP_URL=https://glitchtip.firma.cz
+# GLITCHTIP_ORG=firma
+# GLITCHTIP_PROJECT=aplikace
+
 # Ukázka pro flavors
 # FIREBASE_APP_ID_cashdesk_prod="xxx"
 # FIREBASE_APP_ID_cashdesk_prerelease="xxx"

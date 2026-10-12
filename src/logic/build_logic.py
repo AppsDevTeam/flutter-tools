@@ -22,6 +22,7 @@ from .android_snapshot_check import purge_native_libs_cache
 from .build_ios import run_ios_tasks_pre_build, run_ios_tasks_post_build
 from .build_web import run_web_tasks_pre_build, run_web_tasks_post_build, restore_web_build_from_git
 from .build_desktop import run_desktop_tasks_post_build
+from .crash_reporting import PROVIDER_GLITCHTIP, get_provider, release_dart_define
 
 
 def run_flutter_build_logic(params, logger):
@@ -85,6 +86,12 @@ def run_flutter_build_logic(params, logger):
     # Načtení environment proměnných HNED, protože je potřebujeme pro iOS pre-build
     env_vars = parse_env_file(logger)
 
+    # Služba pro hlášení pádů (firebase / glitchtip / none) určuje nahrávání symbolů
+    # a to, jestli iOS build vyžaduje GoogleService-Info.plist.
+    crash_provider = get_provider(logger, flavor, env, env_vars)
+    params["_crash_provider"] = crash_provider
+    logger.info(f"📋 Hlášení pádů: {crash_provider}")
+
     # --- KROK 1: Spuštění flutter pub get ---
     ret_code, _ = execute_command(['flutter', 'pub', 'get'], logger, title="Spouštím flutter pub get")
     if ret_code != 0:
@@ -144,6 +151,16 @@ def run_flutter_build_logic(params, logger):
     # --- KROK 5: Sestavení Flutter příkazu (NOVÁ LOGIKA) ---
     
     dart_defines = resolve_dart_defines(logger, flavor, env, env_vars)
+
+    # GlitchTip: aplikace dostane název vydání, ke kterému se nahrají symboly / source mapy.
+    if crash_provider == PROVIDER_GLITCHTIP:
+        package_name = env_vars.get("PACKAGE_NAME")
+        if package_name:
+            release_define = release_dart_define(package_name, version_name, build_number)
+            logger.info(f"   -> {release_define.replace('--dart-define=', '')}")
+            dart_defines.append(release_define)
+        else:
+            logger.warn("PACKAGE_NAME chybí, SENTRY_RELEASE se aplikaci nepředá.")
     
     build_command = ['flutter', 'build', build_type, f'--{build_mode}']
 
@@ -208,6 +225,15 @@ def run_flutter_build_logic(params, logger):
         logger.info(f"Symboly budou uloženy do: {symbols_dir}")
     
     build_command.extend(dart_defines)
+
+    # Web + GlitchTip: source mapy pro čitelné chyby; po nahrání se z build/web smažou.
+    if (build_type == 'web' and crash_provider == PROVIDER_GLITCHTIP
+            and params.get(KEY_UPLOAD_SYMBOLS, False)):
+        build_command.append('--source-maps')
+        params["_web_source_maps"] = True
+        logger.info("Web build se source mapami (pro GlitchTip).")
+    elif build_type == 'web' and params.get(KEY_UPLOAD_SYMBOLS, False):
+        logger.info(f"Web: symboly (source mapy) se nahrávají jen do GlitchTipu, projekt má {crash_provider}.")
 
     # 5.4 Smazání artefaktů z předchozích buildů
     # Přejmenované artefakty se v output adresáři hromadí a Flutter si při kontrole
