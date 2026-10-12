@@ -9,7 +9,7 @@ import webbrowser
 from tkinter import messagebox
 
 from .build_common import get_package_name, execute_command, wait_for_paths
-from ..constants import KEY_FLAVOR, KEY_ENV, KEY_BUILD_MODE, KEY_CHECK_SQLITE_WEB
+from ..constants import KEY_FLAVOR, KEY_ENV, KEY_BUILD_MODE, KEY_CHECK_SQLITE_WEB, KEY_GIT_PUSH
 
 def run_web_tasks_pre_build(logger):
     """
@@ -173,14 +173,19 @@ def _archive_web_build(logger, params, env_vars):
         return None
 
 def restore_web_build_from_git(logger):
+    """
+    Po neúspěšném buildu vrátí build/web: z indexu ho odebere vždy (i když v gitu
+    verzovaný není, ale build ho už přidal), verzovaný navíc vrátí i v pracovní složce.
+    """
     logger.warn("Obnovuji build/web do původního stavu z Gitu...")
+    execute_command(['git', 'reset', '-q', '--', 'build/web'], logger, log_stdout=False)
+
     ret_code, _ = execute_command(['git', 'ls-files', '--error-unmatch', 'build/web'], logger, log_stdout=False)
     if ret_code == 0:
-        execute_command(['git', 'restore', '--staged', 'build/web'], logger)
         execute_command(['git', 'restore', 'build/web'], logger)
         logger.success("Složka build/web byla úspěšně obnovena ze stavu v gitu.")
     else:
-        logger.error("Složka build/web není verzovaná - nelze obnovit přes git.")
+        logger.info("Složka build/web není verzovaná — jen odebrána z indexu, pracovní složka zůstává.")
 
 def run_web_tasks_post_build(logger, params, env_vars, actions_performed):
     """Kompletní sada úloh po buildu webu."""
@@ -223,8 +228,13 @@ def run_web_tasks_post_build(logger, params, env_vars, actions_performed):
         return None
 
     logger.success("Verifikace OK.")
-    _stage_web_build_to_git(logger)
-    actions_performed["web_added"] = True
+    # Jen s git pushem (jako u desktopu): jinak by build/web zůstal přidaný v indexu
+    # a dostal se do příštího ručního commitu.
+    if params.get(KEY_GIT_PUSH, False):
+        _stage_web_build_to_git(logger)
+        actions_performed["web_added"] = True
+    else:
+        logger.info("Git push je vypnutý — build/web se do gitu nepřidává.")
 
     output_dir = _archive_web_build(logger, params, env_vars)
             

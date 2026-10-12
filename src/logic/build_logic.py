@@ -14,7 +14,8 @@ from .build_common import (
     execute_command, parse_env_file, resolve_dart_defines,
     get_version_from_pubspec, bump_version, perform_git_push,
     open_output_folder, revert_pubspec_version,
-    to_camel_case, get_version_parts, update_changelog
+    to_camel_case, get_version_parts, update_changelog,
+    snapshot_changelog, restore_changelog
 )
 from .build_android import run_android_tasks_post_build, purge_stale_artifacts
 from .android_snapshot_check import purge_native_libs_cache
@@ -30,6 +31,10 @@ def run_flutter_build_logic(params, logger):
     
     # --- Definice záchranné funkce ---
     original_version_line = None 
+    # Stav CHANGELOG.md před aktualizací; changelog_snapshot_taken říká, že se
+    # changelog měnil a při selhání se má vrátit (None je i platný stav „neexistoval“).
+    original_changelog = None
+    changelog_snapshot_taken = False
     build_type = params.get(KEY_BUILD_TYPE, "apk")
 
     def _handle_failure(message):
@@ -39,6 +44,9 @@ def run_flutter_build_logic(params, logger):
         bump_strategy = params.get(KEY_BUMP_STRATEGY, BUMP_NONE)
         if bump_strategy != BUMP_NONE and original_version_line:
             revert_pubspec_version(logger, original_version_line)
+
+        if changelog_snapshot_taken:
+            restore_changelog(logger, original_changelog)
         
         if build_type == 'web':
             restore_web_build_from_git(logger)
@@ -107,6 +115,11 @@ def run_flutter_build_logic(params, logger):
 
     # --- KROK 3.5: Aktualizace CHANGELOG.md ---
     if params.get(KEY_UPDATE_CHANGELOG, False):
+        try:
+            original_changelog = snapshot_changelog()
+            changelog_snapshot_taken = True
+        except Exception as e:
+            logger.warn(f"Nepodařilo se uložit stav changelogu pro případné vrácení: {e}")
         if update_changelog(
             logger, version_name, build_number,
             via_claude=params.get(KEY_CHANGELOG_VIA_CLAUDE, False),
