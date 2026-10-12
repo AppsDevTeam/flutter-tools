@@ -279,7 +279,7 @@ def run_android_tasks_post_build(logger, params, env_vars, actions_performed):
         logger.info("CRASH_REPORTING=none — symboly se nenahrávají.")
     elif upload_symbols and provider == PROVIDER_GLITCHTIP:
         logger.header("--- Nahrávám symboly (Android) do GlitchTipu ---")
-        settings = GlitchTipSettings.resolve(logger, flavor, env, env_vars)
+        settings = GlitchTipSettings.resolve(logger, params, env_vars)
         if settings:
             dart_ok = upload_debug_files(logger, settings, [params.get("_symbols_dir")], "Dart symboly")
             mapping_ok = upload_proguard_mapping(logger, settings)

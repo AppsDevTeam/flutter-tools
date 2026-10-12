@@ -18,7 +18,7 @@ ADT_TOOLS_ENV_EXAMPLE = """PACKAGE_NAME=\"com.vasetvafirma.vasappka\"
 # CRASH_REPORTING=firebase
 
 # GlitchTip (CRASH_REPORTING=glitchtip): symboly a source mapy přes sentry-cli.
-# Token nepatří do repozitáře: SENTRY_AUTH_TOKEN v prostředí, nebo ~/.sentryclirc.
+# Token nepatří do repozitáře: zadává se v ADT tools (pole GlitchTip token), nebo SENTRY_AUTH_TOKEN, nebo ~/.sentryclirc.
 # Aplikace dostane název vydání jako --dart-define=SENTRY_RELEASE (předat do SentryFlutter.init).
 # GLITCHTIP_URL=https://glitchtip.firma.cz
 # GLITCHTIP_ORG=firma

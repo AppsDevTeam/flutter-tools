@@ -95,7 +95,9 @@ GLITCHTIP_ORG=yourcompany
 GLITCHTIP_PROJECT=yourapp
 ```
 
-The upload token never goes into the repository: set `SENTRY_AUTH_TOKEN` (or `GLITCHTIP_AUTH_TOKEN`) in the environment the tool runs in, or log `sentry-cli` in once (`~/.sentryclirc`). The tool passes the token to `sentry-cli` through the environment, so it does not appear in the build console.
+These keys live in the project repository, so everyone who builds the project uploads to the same place. The build tab shows the service and GlitchTip target resolved for the selected flavor/env, so it is visible before the build where the symbols go; missing GlitchTip keys are reported before the build starts.
+
+The upload token is personal and never goes into the repository: enter it in the build tab (*GlitchTip token*, shown when the project uses GlitchTip). It is stored in the tool's local `config.json` (git-ignored) and shared by all projects. Without it the tool falls back to `SENTRY_AUTH_TOKEN` (or `GLITCHTIP_AUTH_TOKEN`) in the environment, then to a `sentry-cli login` (`~/.sentryclirc`). The token reaches `sentry-cli` through the environment, so it does not appear in the build console.
 
 Symbols are matched to errors by the release name `<PACKAGE_NAME>@<version>+<build>` (e.g. `cz.firma.app@1.2.3+45`). With `glitchtip` every build gets it as `--dart-define=SENTRY_RELEASE=…`; pass it to the SDK:
 

@@ -10,7 +10,11 @@ from .project_selection import AddProjectDialog
 from ..logic.nbsp_logic import run_add_nbsp_logic
 from ..logic.serializable_logic import run_json_serializable_logic
 from ..logic.build_logic import run_flutter_build_logic
-from ..logic.build_common import get_version_from_pubspec, calculate_bump
+from ..logic.build_common import get_version_from_pubspec, calculate_bump, parse_env_file
+from ..logic.crash_reporting import (
+    PROVIDER_FIREBASE, PROVIDER_GLITCHTIP, PROVIDER_NONE, PARAM_GLITCHTIP_TOKEN,
+    read_provider, read_glitchtip_config
+)
 from ..config_manager import PRESET_DEFAULTS
 
 from ..constants import (
@@ -21,6 +25,12 @@ from ..constants import (
     KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS, KEY_INSTALL_COCOAPODS,
     KEY_CHECK_SQLITE_WEB, KEY_UPDATE_CHANGELOG, KEY_CHANGELOG_VIA_CLAUDE
 )
+
+class _SilentLogger:
+    """Logger pro čtení konfigurace mimo build (bez výpisu do konzole)."""
+    def __getattr__(self, name):
+        return lambda *args, **kwargs: None
+
 
 class MainWindow(tk.Toplevel):
     def __init__(self, parent, config_manager, current_project_name):
@@ -56,6 +66,16 @@ class MainWindow(tk.Toplevel):
         )
         # Sledování změn pro NBSP
         self.translations_path.trace_add("write", self._save_nbsp_settings)
+
+        # Osobní token pro GlitchTip: společný pro všechny projekty, jen v lokálním config.json.
+        # Služba a cíl (CRASH_REPORTING, GLITCHTIP_*) jsou v adt_tools_config.env projektu (git).
+        self.glitchtip_token = tk.StringVar(value=self.config_manager.get_glitchtip_token())
+        self.glitchtip_token.trace_add(
+            "write", lambda *args: self.config_manager.set_glitchtip_token(self.glitchtip_token.get().strip())
+        )
+        # Výsledek posledního čtení adt_tools_config.env pro vybraný flavor/env
+        self._crash_provider = PROVIDER_FIREBASE
+        self._glitchtip_missing = []
         # --- KONEC ZMĚNY ---
 
         self._create_widgets()
@@ -316,17 +336,27 @@ class MainWindow(tk.Toplevel):
         # Všechny ostatní řádky se posunuly o 1 dolů
         obfuscate_frame = ttk.LabelFrame(frame, text="Obfuskace & Symboly", padding=5)
         obfuscate_frame.grid(row=7, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
+
+        # Kam se symboly nahrají (z adt_tools_config.env pro vybraný flavor/env)
+        self.crash_info_label = ttk.Label(obfuscate_frame, text="", justify="left")
+        self.crash_info_label.pack(anchor="w", pady=(0, 4))
         
         self.obfuscate_check = self._create_checkbox(obfuscate_frame, "Vypnout obfuskaci", KEY_DISABLE_OBFUSCATION)
         self.obfuscate_check.pack(anchor="w")
 
         self.symbols_check = self._create_checkbox(
             obfuscate_frame, 
-            # Služba podle CRASH_REPORTING v adt_tools_config.env (firebase / glitchtip / none);
-            # na webu jen GlitchTip (source mapy).
-            "Nahrát symboly (Firebase / GlitchTip)", 
+            # Text podle služby (CRASH_REPORTING), viz _update_crash_reporting_ui
+            "Nahrát symboly", 
             KEY_UPLOAD_SYMBOLS, 
             padx=(20, 0)
+        )
+
+        # Token jen u GlitchTipu
+        self.glitchtip_token_frame = ttk.Frame(obfuscate_frame)
+        ttk.Label(self.glitchtip_token_frame, text="GlitchTip token:").pack(side="left")
+        ttk.Entry(self.glitchtip_token_frame, textvariable=self.glitchtip_token, show="•").pack(
+            side="left", fill="x", expand=True, padx=(5, 0)
         )
         
         self.web_frame = ttk.LabelFrame(frame, text="Web", padding=5)
@@ -348,6 +378,8 @@ class MainWindow(tk.Toplevel):
         self.build_vars[KEY_BUILD_TYPE].trace_add("write", self._update_build_ui_state)
         self.build_vars[KEY_DISABLE_OBFUSCATION].trace_add("write", self._update_build_ui_state)
         self.build_vars[KEY_UPDATE_CHANGELOG].trace_add("write", self._update_build_ui_state)
+        self.build_vars[KEY_FLAVOR].trace_add("write", self._update_build_ui_state)
+        self.build_vars[KEY_ENV].trace_add("write", self._update_build_ui_state)
         self._update_build_ui_state()
         self.build_vars[KEY_BUILD_TYPE].trace_add("write", lambda *args: self._update_build_ui_state())
         self.build_vars[KEY_DISABLE_OBFUSCATION].trace_add("write", lambda *args: self._update_build_ui_state())
@@ -500,6 +532,8 @@ class MainWindow(tk.Toplevel):
                 # Volitelně můžeme nastavit vizuálně, že je to vypnuté, 
                 # ale hodnotu v proměnné měnit nemusíme, logika to bude ignorovat.
 
+            self._update_crash_reporting_ui(build_type)
+
             # Claude má smysl jen když se changelog vůbec aktualizuje
             if self.build_vars[KEY_UPDATE_CHANGELOG].get():
                 self.changelog_claude_check.config(state="normal")
@@ -518,6 +552,50 @@ class MainWindow(tk.Toplevel):
             pass
         finally:
             self._is_updating_ui = False # Vypneme ochranu
+
+    def _update_crash_reporting_ui(self, build_type):
+        """
+        Načte službu pro hlášení pádů z adt_tools_config.env (sdílené v gitu) pro vybraný
+        flavor/env a ukáže ji: kam se symboly nahrají, popisek checkboxu, pole pro token.
+        """
+        flavor = self.build_vars[KEY_FLAVOR].get()
+        env = self.build_vars[KEY_ENV].get()
+        env_vars = parse_env_file(_SilentLogger())
+        provider, unknown = read_provider(flavor, env, env_vars)
+        self._crash_provider = provider
+        self._glitchtip_missing = []
+
+        if provider == PROVIDER_GLITCHTIP:
+            values, self._glitchtip_missing = read_glitchtip_config(flavor, env, env_vars)
+            if self._glitchtip_missing:
+                target = f"chybí {', '.join(self._glitchtip_missing)}"
+            else:
+                host = values["GLITCHTIP_URL"].split("://", 1)[-1].rstrip("/")
+                target = f"{host} / {values['GLITCHTIP_ORG']} / {values['GLITCHTIP_PROJECT']}"
+            info = f"Hlášení pádů: GlitchTip ({target})"
+            symbols_text = "Nahrát source mapy do GlitchTipu" if build_type == "web" else "Nahrát symboly do GlitchTipu"
+        elif provider == PROVIDER_NONE:
+            info = "Hlášení pádů: žádné"
+            symbols_text = "Nahrát symboly (projekt nemá hlášení pádů)"
+        else:
+            info = "Hlášení pádů: Firebase Crashlytics"
+            if unknown:
+                info += f" (neznámá hodnota CRASH_REPORTING='{unknown}')"
+            symbols_text = "Nahrát symboly do Firebase Crashlytics"
+            if build_type == "web":
+                symbols_text += " (na webu nic)"
+
+        self.crash_info_label.config(text=f"{info} — {ADT_PROJECT_CONFIG_FILENAME}")
+        self.symbols_check.config(text=symbols_text)
+
+        # Bez služby (nebo Firebase na webu) není co nahrát; hodnotu v presetu neměníme.
+        if provider == PROVIDER_NONE or (provider == PROVIDER_FIREBASE and build_type == "web"):
+            self.symbols_check.config(state="disabled")
+
+        if provider == PROVIDER_GLITCHTIP:
+            self.glitchtip_token_frame.pack(anchor="w", fill="x", padx=(20, 0), pady=(4, 0), after=self.symbols_check)
+        else:
+            self.glitchtip_token_frame.pack_forget()
 
     def _show_project_options_menu(self):
         """Zobrazí kontextové menu pro úpravu aktuálního projektu."""
@@ -745,7 +823,21 @@ class MainWindow(tk.Toplevel):
     def _run_build_script(self):
         """Spustí build s aktuálním nastavením UI."""
         # Ukládání se děje automaticky přes trace
+        # Konfigurace projektu se mohla mezitím změnit (git pull, ruční úprava)
+        self._update_build_ui_state()
+        if (self._crash_provider == PROVIDER_GLITCHTIP and self._glitchtip_missing
+                and str(self.symbols_check.cget("state")) != "disabled"
+                and self.build_vars[KEY_UPLOAD_SYMBOLS].get()):
+            if not messagebox.askyesno(
+                "GlitchTip",
+                f"V {ADT_PROJECT_CONFIG_FILENAME} chybí {', '.join(self._glitchtip_missing)}, "
+                "symboly se nenahrají.\n\nPokračovat v buildu?",
+                parent=self
+            ):
+                return
+
         params = self._gather_build_settings()
+        params[PARAM_GLITCHTIP_TOKEN] = self.glitchtip_token.get().strip()
         self._run_script_in_thread(
             run_flutter_build_logic, 
             self.build_console, 

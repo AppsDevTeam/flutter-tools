@@ -309,7 +309,7 @@ def run_ios_tasks_post_build(logger, params, env_vars, actions_performed):
 def _upload_ios_symbols_to_glitchtip(logger, params, env_vars, actions_performed):
     """dSYM z archivu (nativní část) a Dart symboly z --split-debug-info do GlitchTipu."""
     logger.header("--- Nahrávám symboly (iOS dSYM a Dart) do GlitchTipu ---")
-    settings = GlitchTipSettings.resolve(logger, params.get(KEY_FLAVOR), params.get(KEY_ENV), env_vars)
+    settings = GlitchTipSettings.resolve(logger, params, env_vars)
     if not settings:
         return
 

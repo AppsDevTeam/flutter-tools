@@ -7,34 +7,54 @@ Hlášení pádů a nahrávání symbolů podle služby projektu (CRASH_REPORTIN
 - none: žádná služba; nic se nenahrává a iOS build nevyžaduje GoogleService-Info.plist.
 
 GlitchTip se nastavuje klíči GLITCHTIP_URL, GLITCHTIP_ORG a GLITCHTIP_PROJECT (i s příponou
-_<flavor>_<env> jako ostatní klíče). Token se do repozitáře nedává: bere se z proměnné prostředí
+_<flavor>_<env> jako ostatní klíče). Token je osobní a do repozitáře
+nepatří: zadává se v UI (lokální config.json nástroje), záložně z proměnné prostředí
 SENTRY_AUTH_TOKEN (nebo GLITCHTIP_AUTH_TOKEN), případně z ~/.sentryclirc vývojáře.
 """
 import glob
 import os
 
+from ..constants import KEY_FLAVOR, KEY_ENV
 from .build_common import execute_command, resolve_value
 
 PROVIDER_FIREBASE = "firebase"
 PROVIDER_GLITCHTIP = "glitchtip"
 PROVIDER_NONE = "none"
-_PROVIDERS = (PROVIDER_FIREBASE, PROVIDER_GLITCHTIP, PROVIDER_NONE)
+PROVIDERS = (PROVIDER_FIREBASE, PROVIDER_GLITCHTIP, PROVIDER_NONE)
 
 # Dart define s názvem vydání: aplikace ho předá Sentry SDK (SentryFlutter.init, options.release),
 # aby chyby a nahrané symboly měly stejné vydání. Výchozí release SDK na webu nesedí
 # (package_info tam vrací název Dart balíčku, ne package name aplikace).
 RELEASE_DART_DEFINE = "SENTRY_RELEASE"
 
+# Parametr buildu s tokenem z UI; do presetu se neukládá.
+PARAM_GLITCHTIP_TOKEN = "_glitchtip_token"
+
+_GLITCHTIP_KEYS = ("GLITCHTIP_URL", "GLITCHTIP_ORG", "GLITCHTIP_PROJECT")
+
+
+def read_provider(flavor, env, env_vars):
+    """(služba, neznámá hodnota nebo None); neznámá hodnota znamená výchozí firebase."""
+    value = (resolve_value("CRASH_REPORTING", flavor, env, env_vars) or PROVIDER_FIREBASE).strip().lower()
+    if value not in PROVIDERS:
+        return PROVIDER_FIREBASE, value
+    return value, None
+
 
 def get_provider(logger, flavor, env, env_vars):
     """Služba pro hlášení pádů; neznámá hodnota se hlásí a bere se výchozí firebase."""
-    value = (resolve_value("CRASH_REPORTING", flavor, env, env_vars) or PROVIDER_FIREBASE).strip().lower()
-    if value not in _PROVIDERS:
+    provider, unknown = read_provider(flavor, env, env_vars)
+    if unknown:
         logger.warn(
-            f"Neznámá hodnota CRASH_REPORTING='{value}' (povolené: {', '.join(_PROVIDERS)}). Používám firebase."
+            f"Neznámá hodnota CRASH_REPORTING='{unknown}' (povolené: {', '.join(PROVIDERS)}). Používám firebase."
         )
-        return PROVIDER_FIREBASE
-    return value
+    return provider
+
+
+def read_glitchtip_config(flavor, env, env_vars):
+    """({klíč: hodnota}, [chybějící klíče]) pro GLITCHTIP_URL / _ORG / _PROJECT."""
+    values = {key: (resolve_value(key, flavor, env, env_vars) or "").strip() for key in _GLITCHTIP_KEYS}
+    return values, [key for key in _GLITCHTIP_KEYS if not values[key]]
 
 
 def release_name(package_name, version_name, build_number):
@@ -57,22 +77,17 @@ class GlitchTipSettings:
         self.token = token
 
     @classmethod
-    def resolve(cls, logger, flavor, env, env_vars):
-        url = resolve_value("GLITCHTIP_URL", flavor, env, env_vars)
-        org = resolve_value("GLITCHTIP_ORG", flavor, env, env_vars)
-        project = resolve_value("GLITCHTIP_PROJECT", flavor, env, env_vars)
-        missing = [name for name, value in (("GLITCHTIP_URL", url), ("GLITCHTIP_ORG", org),
-                                            ("GLITCHTIP_PROJECT", project)) if not value]
+    def resolve(cls, logger, params, env_vars):
+        values, missing = read_glitchtip_config(params.get(KEY_FLAVOR), params.get(KEY_ENV), env_vars)
         if missing:
             logger.error(f"Pro GlitchTip chybí v adt_tools_config.env: {', '.join(missing)}. Nahrávání přeskočeno.")
             return None
 
-        token = os.environ.get("SENTRY_AUTH_TOKEN") or os.environ.get("GLITCHTIP_AUTH_TOKEN")
+        token = ((params.get(PARAM_GLITCHTIP_TOKEN) or "").strip()
+                 or os.environ.get("SENTRY_AUTH_TOKEN") or os.environ.get("GLITCHTIP_AUTH_TOKEN"))
         if not token:
-            logger.warn(
-                "SENTRY_AUTH_TOKEN (ani GLITCHTIP_AUTH_TOKEN) není nastavený; sentry-cli zkusí ~/.sentryclirc."
-            )
-        return cls(url.rstrip('/'), org, project, token)
+            logger.warn("GlitchTip token není vyplněný v ADT tools ani v SENTRY_AUTH_TOKEN; sentry-cli zkusí ~/.sentryclirc.")
+        return cls(values["GLITCHTIP_URL"].rstrip('/'), values["GLITCHTIP_ORG"], values["GLITCHTIP_PROJECT"], token)
 
     def env(self):
         values = {"SENTRY_URL": self.url, "SENTRY_ORG": self.org, "SENTRY_PROJECT": self.project}

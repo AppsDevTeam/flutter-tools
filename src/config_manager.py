@@ -215,6 +215,14 @@ class ConfigManager:
             return False
         return True
 
+    def get_glitchtip_token(self):
+        """Osobní token pro GlitchTip, společný pro všechny projekty (config.json je mimo git)."""
+        return self.config.get('glitchtip_token', '')
+
+    def set_glitchtip_token(self, token):
+        self.config['glitchtip_token'] = token
+        self.save_config()
+
     def get_last_tab(self):
         return self.config.get('last_tab', 0)
 

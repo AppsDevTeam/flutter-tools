@@ -234,7 +234,7 @@ def run_web_tasks_post_build(logger, params, env_vars, actions_performed):
     # selže) — na veřejném serveru ani v gitu / ZIPu by z nich šel přečíst zdrojový kód.
     if params.get("_web_source_maps", False):
         logger.header("--- Nahrávám source mapy do GlitchTipu ---")
-        settings = GlitchTipSettings.resolve(logger, params.get(KEY_FLAVOR), params.get(KEY_ENV), env_vars)
+        settings = GlitchTipSettings.resolve(logger, params, env_vars)
         package_name = env_vars.get("PACKAGE_NAME")
         if settings and package_name:
             release = release_name(package_name, params.get("_version_name"), params.get("_build_number"))
