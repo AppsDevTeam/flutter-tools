@@ -24,7 +24,8 @@ Runs a parametrised Flutter build with all the steps you would normally chain by
   - **GlitchTip** — Dart symbols, iOS dSYMs, the Android R8 mapping and web source maps via `sentry-cli`.
 - **CocoaPods install** for iOS (clean reinstall before the build).
 - **Git push** of `pubspec.yaml` and `CHANGELOG.md` after a successful build.
-- **Web extras**: optional check for the `sqlite3.wasm` file expected by some apps.
+- **Web extras**: optional check for the `sqlite3.wasm` file expected by some apps; the ZIP of `build/web` is optional (on by default) — it is committed with the build, so it keeps every released build in git even after the next build rewrites `build/web`.
+- **Web deploy** (optional, needs git push) with Deployer, see [Web deploy](#web-deploy).
 - **Presets** — saved combinations of the above so you can reproduce a release with one click.
 
 The full output of every step is streamed into an in-app console.
@@ -110,6 +111,23 @@ await SentryFlutter.init((options) {
 
 The SDK's default release does not match on the web (`package_info` returns the Dart package name there, not the app's package name).
 
+## Web deploy
+
+For projects deployed with Deployer from `adt/docker-deployer` (`deploy.php`, `config/.env.<stage>`, `make dep` / `make dep-pub`). The server clones the branch `BRANCH` from `config/.env.<stage>` and serves the committed `build/web`, so the deploy runs only after a successful push. Enable it in the project's `adt_tools_config.env`:
+
+```env
+WEB_DEPLOY_STAGE=test
+```
+
+Without the value the *Nasadit na server* option in the Web box stays disabled. With it, a web build with git push and the option checked continues after the push:
+
+1. Moves `BRANCH` on the remote to the build commit (`git push <remote> HEAD:<BRANCH>`, no force), unless the build already is on that branch. A branch with commits the build branch does not have stops the deploy; merge it by hand.
+2. Runs `composer install` when `vendor/bin/dep` is missing — through the `composer:2` Docker image when composer is not installed.
+3. `make dep -- <stage>` uploads the release to the servers (Docker running and the SSH key in the agent are required).
+4. Asks for confirmation, then `make dep-pub -- <stage>` switches the site to the new release. Declining leaves the release uploaded; publish later with `make dep-pub -- <stage>`.
+
+A failed deploy does not fail the build: the build is already committed and pushed, so only the deploy needs repeating.
+
 ## Release notes via Claude
 
 *Aktualizovat CHANGELOG.md* and *Sepsat přes Claude* are checked by default in every new preset, and a `config.json` written before this default existed is brought up to it once on start (`config_version` in the file records that the step ran, so a preset you untick afterwards stays unticked). With *Aktualizovat CHANGELOG.md* checked, the tool normally inserts a section `## [X.Y.Z+BUILD] - date` followed by one bullet per commit since the last change of `CHANGELOG.md`. Checking *Sepsat přes Claude* instead runs
@@ -129,7 +147,7 @@ Model choice: `sonnet` at `medium` effort writes well in Czech and groups commit
 ## Requirements
 
 - **Required**: Python 3, Tkinter, Git, Flutter SDK.
-- **Optional**: Firebase CLI (Crashlytics symbol upload), sentry-cli (GlitchTip symbol and source map upload), CocoaPods (iOS builds, macOS only), Claude Code CLI logged in (release notes via Claude).
+- **Optional**: Firebase CLI (Crashlytics symbol upload), sentry-cli (GlitchTip symbol and source map upload), CocoaPods (iOS builds, macOS only), Claude Code CLI logged in (release notes via Claude), Docker and make (web deploy).
 
 ## Setup
 

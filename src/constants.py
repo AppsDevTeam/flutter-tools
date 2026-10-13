@@ -24,6 +24,10 @@ ADT_TOOLS_ENV_EXAMPLE = """PACKAGE_NAME=\"com.vasetvafirma.vasappka\"
 # GLITCHTIP_ORG=firma
 # GLITCHTIP_PROJECT=aplikace
 
+# Nasazení webu Deployerem (adt/docker-deployer) po pushi web buildu: stage z config/.env.<stage>
+# v projektu (BRANCH tam říká, kterou větev server klonuje). Bez hodnoty se volba v UI nenabízí.
+# WEB_DEPLOY_STAGE=test
+
 # Ukázka pro flavors
 # FIREBASE_APP_ID_cashdesk_prod="xxx"
 # FIREBASE_APP_ID_cashdesk_prerelease="xxx"
@@ -74,6 +78,8 @@ KEY_INSTALL_COCOAPODS = "install_cocoapods"
 KEY_CHECK_SQLITE_WEB = "check_sqlite_web"
 KEY_UPDATE_CHANGELOG = "update_changelog"
 KEY_CHANGELOG_VIA_CLAUDE = "changelog_via_claude"
+KEY_WEB_ZIP = "web_zip"
+KEY_WEB_DEPLOY = "web_deploy"
 
 KEY_BUMP_STRATEGY = "bump_strategy"
 

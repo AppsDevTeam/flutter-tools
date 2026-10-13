@@ -8,7 +8,7 @@ from ..constants import (
     KEY_BUMP_STRATEGY, BUMP_NONE,
     KEY_GIT_PUSH, KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS,
     KEY_INSTALL_COCOAPODS, KEY_CHECK_SQLITE_WEB, KEY_UPDATE_CHANGELOG,
-    KEY_CHANGELOG_VIA_CLAUDE
+    KEY_CHANGELOG_VIA_CLAUDE, KEY_WEB_ZIP, KEY_WEB_DEPLOY
 )
 from .build_common import (
     execute_command, parse_env_file, resolve_dart_defines,
@@ -23,6 +23,7 @@ from .build_ios import run_ios_tasks_pre_build, run_ios_tasks_post_build
 from .build_web import run_web_tasks_pre_build, run_web_tasks_post_build, restore_web_build_from_git
 from .build_desktop import run_desktop_tasks_post_build
 from .crash_reporting import PROVIDER_GLITCHTIP, get_provider, release_dart_define
+from .web_deploy import read_deploy_stage, deploy_web
 
 
 def run_flutter_build_logic(params, logger):
@@ -79,6 +80,10 @@ def run_flutter_build_logic(params, logger):
         f"symbols={params.get(KEY_UPLOAD_SYMBOLS, False)}, "
         f"cocoapods={params.get(KEY_INSTALL_COCOAPODS, False)}"
     )
+    if build_type == 'web':
+        logger.info(
+            f"📋 Web: zip={params.get(KEY_WEB_ZIP, True)}, deploy={params.get(KEY_WEB_DEPLOY, False)}"
+        )
 
     if params.get(KEY_UPDATE_CHANGELOG, False) and not params.get(KEY_GIT_PUSH, False):
         logger.info("ℹ️ Changelog se aktualizuje, ale git push je vypnutý — změny zůstanou jen v pracovním adresáři.")
@@ -274,9 +279,21 @@ def run_flutter_build_logic(params, logger):
         return
 
     # --- KROK 7: Nahrání na Git ---
+    pushed = False
     if params.get(KEY_GIT_PUSH, False):
-        perform_git_push(logger, params, version_name, build_number, actions_performed)
-        
+        pushed = perform_git_push(logger, params, version_name, build_number, actions_performed)
+
+    # --- KROK 7.5: Nasazení webu (server bere build z gitu, proto až po pushi) ---
+    if build_type == 'web' and params.get(KEY_WEB_DEPLOY, False):
+        stage = read_deploy_stage(env_vars)
+        if not stage:
+            logger.warn(f"Nasazení přeskočeno: v {ADT_PROJECT_CONFIG_FILENAME} chybí WEB_DEPLOY_STAGE.")
+        elif not pushed:
+            logger.error("Nasazení přeskočeno: build není na gitu (push vypnutý nebo selhal).")
+        elif not deploy_web(logger, stage):
+            logger.warn("Build je hotový a na gitu, nasazení se nepovedlo (viz výše).")
+
+
     # --- KROK 8: Otevření složky ---
     open_output_folder(logger, build_type, output_dir)
     

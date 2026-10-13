@@ -10,7 +10,7 @@ from tkinter import messagebox
 
 from .build_common import get_package_name, execute_command, wait_for_paths
 from .crash_reporting import GlitchTipSettings, release_name, upload_web_source_maps, remove_web_source_maps
-from ..constants import KEY_FLAVOR, KEY_ENV, KEY_BUILD_MODE, KEY_CHECK_SQLITE_WEB, KEY_GIT_PUSH
+from ..constants import KEY_FLAVOR, KEY_ENV, KEY_BUILD_MODE, KEY_CHECK_SQLITE_WEB, KEY_GIT_PUSH, KEY_WEB_ZIP
 
 def run_web_tasks_pre_build(logger):
     """
@@ -189,7 +189,8 @@ def restore_web_build_from_git(logger):
         logger.info("Složka build/web není verzovaná — jen odebrána z indexu, pracovní složka zůstává.")
 
 def run_web_tasks_post_build(logger, params, env_vars, actions_performed):
-    """Kompletní sada úloh po buildu webu."""
+    """Kompletní sada úloh po buildu webu. Vrací složku s výstupem, None = build zamítnut."""
+    web_build_dir = os.path.join('build', 'web')
     logger.header("--- Kontrola a úprava Web Buildu ---")
 
     # 1. Ověřit manifest.json
@@ -251,6 +252,9 @@ def run_web_tasks_post_build(logger, params, env_vars, actions_performed):
     else:
         logger.info("Git push je vypnutý — build/web se do gitu nepřidává.")
 
-    output_dir = _archive_web_build(logger, params, env_vars)
-            
-    return output_dir
+    # ZIP je pro předání buildu ručně; při nasazení z gitu (Deployer) není potřeba.
+    if not params.get(KEY_WEB_ZIP, True):
+        logger.info("ZIP se nevytváří (vypnuto).")
+        return web_build_dir
+
+    return _archive_web_build(logger, params, env_vars)

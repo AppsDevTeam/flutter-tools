@@ -11,6 +11,7 @@ from ..logic.nbsp_logic import run_add_nbsp_logic
 from ..logic.serializable_logic import run_json_serializable_logic
 from ..logic.build_logic import run_flutter_build_logic
 from ..logic.build_common import get_version_from_pubspec, calculate_bump, parse_env_file
+from ..logic.web_deploy import read_deploy_stage, stage_config_path
 from ..logic.crash_reporting import (
     PROVIDER_FIREBASE, PROVIDER_GLITCHTIP, PROVIDER_NONE, PARAM_GLITCHTIP_TOKEN,
     read_provider, read_glitchtip_config
@@ -23,7 +24,8 @@ from ..constants import (
     KEY_FLAVOR, KEY_ENV, KEY_BUMP_STRATEGY, BUMP_NONE, BUMP_MAJOR, 
     BUMP_MINOR, BUMP_PATCH, BUMP_BUILD, KEY_GIT_PUSH, 
     KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS, KEY_INSTALL_COCOAPODS,
-    KEY_CHECK_SQLITE_WEB, KEY_UPDATE_CHANGELOG, KEY_CHANGELOG_VIA_CLAUDE
+    KEY_CHECK_SQLITE_WEB, KEY_UPDATE_CHANGELOG, KEY_CHANGELOG_VIA_CLAUDE,
+    KEY_WEB_ZIP, KEY_WEB_DEPLOY
 )
 
 class _SilentLogger:
@@ -237,6 +239,12 @@ class MainWindow(tk.Toplevel):
             KEY_CHANGELOG_VIA_CLAUDE: tk.BooleanVar(
                 value=manual_settings.get(KEY_CHANGELOG_VIA_CLAUDE, PRESET_DEFAULTS[KEY_CHANGELOG_VIA_CLAUDE])
             ),
+            KEY_WEB_ZIP: tk.BooleanVar(
+                value=manual_settings.get(KEY_WEB_ZIP, PRESET_DEFAULTS[KEY_WEB_ZIP])
+            ),
+            KEY_WEB_DEPLOY: tk.BooleanVar(
+                value=manual_settings.get(KEY_WEB_DEPLOY, PRESET_DEFAULTS[KEY_WEB_DEPLOY])
+            ),
         }
         
         # 3. Až teď zapneme sledování změn (trace)
@@ -366,6 +374,9 @@ class MainWindow(tk.Toplevel):
             "Zkontrolovat sqlite3.wasm & sqflite_sw.js", 
             KEY_CHECK_SQLITE_WEB
         )
+        self._create_checkbox(self.web_frame, "Zabalit do ZIP (commitne se s buildem)", KEY_WEB_ZIP)
+        # Text podle WEB_DEPLOY_STAGE, viz _update_web_deploy_ui
+        self.web_deploy_check = self._create_checkbox(self.web_frame, "Nasadit na server", KEY_WEB_DEPLOY)
         
         frame.grid_rowconfigure(9, weight=1, minsize=150)
         self.build_console = scrolledtext.ScrolledText(frame, wrap=tk.WORD, state="disabled")
@@ -378,6 +389,7 @@ class MainWindow(tk.Toplevel):
         self.build_vars[KEY_BUILD_TYPE].trace_add("write", self._update_build_ui_state)
         self.build_vars[KEY_DISABLE_OBFUSCATION].trace_add("write", self._update_build_ui_state)
         self.build_vars[KEY_UPDATE_CHANGELOG].trace_add("write", self._update_build_ui_state)
+        self.build_vars[KEY_GIT_PUSH].trace_add("write", self._update_build_ui_state)
         self.build_vars[KEY_FLAVOR].trace_add("write", self._update_build_ui_state)
         self.build_vars[KEY_ENV].trace_add("write", self._update_build_ui_state)
         self._update_build_ui_state()
@@ -544,6 +556,7 @@ class MainWindow(tk.Toplevel):
             # Logika pro Web
             if build_type == "web":
                 self.web_frame.grid() 
+                self._update_web_deploy_ui()
             else:
                 self.web_frame.grid_remove() 
                 self.build_vars[KEY_CHECK_SQLITE_WEB].set(False)
@@ -552,6 +565,27 @@ class MainWindow(tk.Toplevel):
             pass
         finally:
             self._is_updating_ui = False # Vypneme ochranu
+
+    def _update_web_deploy_ui(self):
+        """
+        Nasazení podle WEB_DEPLOY_STAGE v adt_tools_config.env: bez stage se nenabízí, bez pushu
+        nemá smysl (server bere build z gitu).
+        """
+        stage = read_deploy_stage(parse_env_file(_SilentLogger()))
+        if not stage:
+            # Hodnotu v presetu neměníme, jen ji nejde zapnout (logika bez stage nenasazuje).
+            self.web_deploy_check.config(
+                text=f"Nasadit na server (v {ADT_PROJECT_CONFIG_FILENAME} chybí WEB_DEPLOY_STAGE)",
+                state="disabled"
+            )
+            return
+
+        self.web_deploy_check.config(text=f"Nasadit na server: make dep -- {stage} ({stage_config_path(stage)})")
+        if self.build_vars[KEY_GIT_PUSH].get():
+            self.web_deploy_check.config(state="normal")
+        else:
+            self.web_deploy_check.config(state="disabled")
+            self.build_vars[KEY_WEB_DEPLOY].set(False)
 
     def _update_crash_reporting_ui(self, build_type):
         """

@@ -408,14 +408,15 @@ def update_changelog(logger, version_name, build_number, via_claude=False, env_v
     return True
 
 def perform_git_push(logger, params, version_name, build_number, actions_performed):
+    """Commit a push. Vrací True, když je HEAD na serveru (push prošel, nebo nebylo co commitovat)."""
     logger.header("--- Nahrávám změny na Git ---")
     ret_code, status_output = execute_command(['git', 'status', '-s'], logger, log_stdout=False)
     if ret_code != 0:
         logger.error("Chyba při kontrole stavu Gitu. Push přeskočen.")
-        return
+        return False
     if not any(actions_performed.values()) and not status_output.strip():
         logger.info("Nebyly nalezeny žádné změny v Gitu ani provedeny žádné akce. Commit přeskočen.")
-        return
+        return True
     
     commit_prefix = ""
     if actions_performed["version"]: commit_prefix = "Version"
@@ -440,13 +441,17 @@ def perform_git_push(logger, params, version_name, build_number, actions_perform
     execute_command(['git', 'add', '.'], logger)
     ret_code, _ = execute_command(['git', 'commit', '-m', commit_message], logger)
     
-    if ret_code == 0:
-        logger.info("Provádím git push...")
-        ret_code, _ = execute_command(['git', 'push'], logger)
-        if ret_code == 0: logger.success("Git push úspěšný.")
-        else: logger.error("Git push selhal.")
-    else:
+    if ret_code != 0:
         logger.warn("Git commit selhal (možná nebyly žádné změny k commitu).")
+        return False
+
+    logger.info("Provádím git push...")
+    ret_code, _ = execute_command(['git', 'push'], logger)
+    if ret_code == 0:
+        logger.success("Git push úspěšný.")
+        return True
+    logger.error("Git push selhal.")
+    return False
 
 # --- NOVÁ FUNKCE (přesunuta z android a zobecněna) ---
 def get_package_name(logger, env_vars):
