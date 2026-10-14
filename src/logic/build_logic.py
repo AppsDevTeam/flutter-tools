@@ -1,6 +1,7 @@
 # src/logic/build_logic.py
 import os
 import re
+from tkinter import messagebox
 
 from ..constants import (
     ADT_PROJECT_CONFIG_FILENAME, PRESET_MANUAL,
@@ -8,7 +9,7 @@ from ..constants import (
     KEY_BUMP_STRATEGY, BUMP_NONE,
     KEY_GIT_PUSH, KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS,
     KEY_INSTALL_COCOAPODS, KEY_CHECK_SQLITE_WEB, KEY_UPDATE_CHANGELOG,
-    KEY_CHANGELOG_VIA_CLAUDE
+    KEY_CHANGELOG_VIA_CLAUDE, KEY_WEB_ZIP, KEY_WEB_DEPLOY
 )
 from .build_common import (
     execute_command, parse_env_file, resolve_dart_defines,
@@ -20,8 +21,12 @@ from .build_common import (
 from .build_android import run_android_tasks_post_build, purge_stale_artifacts
 from .android_snapshot_check import purge_native_libs_cache
 from .build_ios import run_ios_tasks_pre_build, run_ios_tasks_post_build
-from .build_web import run_web_tasks_pre_build, run_web_tasks_post_build, restore_web_build_from_git
+from .build_web import (
+    run_web_tasks_pre_build, run_web_tasks_post_build, restore_web_build_from_git, uses_resources_cdn
+)
 from .build_desktop import run_desktop_tasks_post_build
+from .crash_reporting import PROVIDER_GLITCHTIP, GlitchTipSettings, get_provider, release_dart_define, verify_glitchtip
+from .web_deploy import read_deploy_stage, deploy_web
 
 
 def run_flutter_build_logic(params, logger):
@@ -78,12 +83,43 @@ def run_flutter_build_logic(params, logger):
         f"symbols={params.get(KEY_UPLOAD_SYMBOLS, False)}, "
         f"cocoapods={params.get(KEY_INSTALL_COCOAPODS, False)}"
     )
+    if build_type == 'web':
+        logger.info(
+            f"📋 Web: zip={params.get(KEY_WEB_ZIP, True)}, deploy={params.get(KEY_WEB_DEPLOY, False)}"
+        )
 
     if params.get(KEY_UPDATE_CHANGELOG, False) and not params.get(KEY_GIT_PUSH, False):
         logger.info("ℹ️ Changelog se aktualizuje, ale git push je vypnutý — změny zůstanou jen v pracovním adresáři.")
 
     # Načtení environment proměnných HNED, protože je potřebujeme pro iOS pre-build
     env_vars = parse_env_file(logger)
+
+    # Služba pro hlášení pádů (firebase / glitchtip / none) určuje nahrávání symbolů
+    # a to, jestli iOS build vyžaduje GoogleService-Info.plist.
+    crash_provider = get_provider(logger, flavor, env, env_vars)
+    params["_crash_provider"] = crash_provider
+    logger.info(f"📋 Hlášení pádů: {crash_provider}")
+
+    # GlitchTip se ověří hned, ne až po buildu: se špatným tokenem nebo projektem by build doběhl
+    # a symboly / source mapy by se nenahrály (a source mapy z webu se po pokusu mažou).
+    if (crash_provider == PROVIDER_GLITCHTIP and params.get(KEY_UPLOAD_SYMBOLS, False)
+            and build_type in ['apk', 'appbundle', 'ipa', 'web']):
+        logger.header("--- Ověřuji GlitchTip ---")
+        settings = GlitchTipSettings.resolve(logger, params, env_vars)
+        ok, message = verify_glitchtip(settings) if settings else (False, "Chybí nastavení GlitchTipu.")
+        if ok:
+            logger.success(message)
+        else:
+            logger.error(message)
+            if not messagebox.askyesno(
+                "GlitchTip",
+                f"{message}\n\nAno = pokračovat bez nahrání symbolů\nNe = zrušit build (nic se nezměnilo)",
+                icon='warning'
+            ):
+                logger.error("Build zrušen před začátkem, verze ani soubory se nezměnily.")
+                return
+            params[KEY_UPLOAD_SYMBOLS] = False
+            logger.warn("Pokračuji bez nahrání symbolů.")
 
     # --- KROK 1: Spuštění flutter pub get ---
     ret_code, _ = execute_command(['flutter', 'pub', 'get'], logger, title="Spouštím flutter pub get")
@@ -144,6 +180,16 @@ def run_flutter_build_logic(params, logger):
     # --- KROK 5: Sestavení Flutter příkazu (NOVÁ LOGIKA) ---
     
     dart_defines = resolve_dart_defines(logger, flavor, env, env_vars)
+
+    # GlitchTip: aplikace dostane název vydání, ke kterému se nahrají symboly / source mapy.
+    if crash_provider == PROVIDER_GLITCHTIP:
+        package_name = env_vars.get("PACKAGE_NAME")
+        if package_name:
+            release_define = release_dart_define(package_name, version_name, build_number)
+            logger.info(f"   -> {release_define.replace('--dart-define=', '')}")
+            dart_defines.append(release_define)
+        else:
+            logger.warn("PACKAGE_NAME chybí, SENTRY_RELEASE se aplikaci nepředá.")
     
     build_command = ['flutter', 'build', build_type, f'--{build_mode}']
 
@@ -209,6 +255,19 @@ def run_flutter_build_logic(params, logger):
     
     build_command.extend(dart_defines)
 
+    # Web + GlitchTip: source mapy pro čitelné chyby; po nahrání se z build/web smažou.
+    if (build_type == 'web' and crash_provider == PROVIDER_GLITCHTIP
+            and params.get(KEY_UPLOAD_SYMBOLS, False)):
+        build_command.append('--source-maps')
+        params["_web_source_maps"] = True
+        logger.info("Web build se source mapami (pro GlitchTip).")
+    elif build_type == 'web' and params.get(KEY_UPLOAD_SYMBOLS, False):
+        logger.info(f"Web: symboly (source mapy) se nahrávají jen do GlitchTipu, projekt má {crash_provider}.")
+
+    if build_type == 'web' and not uses_resources_cdn(env_vars):
+        build_command.append('--no-web-resources-cdn')
+        logger.info("Web: CanvasKit z vlastního serveru (WEB_RESOURCES_CDN=false), bez Google CDN.")
+
     # 5.4 Smazání artefaktů z předchozích buildů
     # Přejmenované artefakty se v output adresáři hromadí a Flutter si při kontrole
     # odstripovaných debug symbolů umí vybrat ten starý (viz purge_stale_artifacts).
@@ -248,9 +307,21 @@ def run_flutter_build_logic(params, logger):
         return
 
     # --- KROK 7: Nahrání na Git ---
+    pushed = False
     if params.get(KEY_GIT_PUSH, False):
-        perform_git_push(logger, params, version_name, build_number, actions_performed)
-        
+        pushed = perform_git_push(logger, params, version_name, build_number, actions_performed)
+
+    # --- KROK 7.5: Nasazení webu (server bere build z gitu, proto až po pushi) ---
+    if build_type == 'web' and params.get(KEY_WEB_DEPLOY, False):
+        stage = read_deploy_stage(env_vars)
+        if not stage:
+            logger.warn(f"Nasazení přeskočeno: v {ADT_PROJECT_CONFIG_FILENAME} chybí WEB_DEPLOY_STAGE.")
+        elif not pushed:
+            logger.error("Nasazení přeskočeno: build není na gitu (push vypnutý nebo selhal).")
+        elif not deploy_web(logger, stage):
+            logger.warn("Build je hotový a na gitu, nasazení se nepovedlo (viz výše).")
+
+
     # --- KROK 8: Otevření složky ---
     open_output_folder(logger, build_type, output_dir)
     

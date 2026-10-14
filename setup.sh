@@ -322,6 +322,40 @@ install_firebase() {
 
 # --- PYTHON 3 ---
 PYTHON_CMD=""
+# --- SENTRY CLI (GlitchTip) ---
+check_sentry_cli() {
+    echo -n "sentry-cli... "
+    if has sentry-cli; then
+        echo -e "${GREEN}OK${NC} ($(sentry-cli --version))"
+        return 0
+    fi
+    echo -e "${YELLOW}chybí${NC}"
+    return 1
+}
+
+install_sentry_cli() {
+    local opts=()
+    [ $HAS_BREW -eq 1 ] && opts+=("brew install getsentry/tools/sentry-cli")
+    if [ $HAS_NPM -eq 1 ]; then
+        if needs_sudo_for_npm_global; then
+            opts+=("sudo npm install -g @sentry/cli")
+        else
+            opts+=("npm install -g @sentry/cli")
+        fi
+    fi
+    if [ "$OS_TYPE" = "windows" ]; then
+        [ $HAS_SCOOP -eq 1 ] && opts+=("scoop install sentry-cli")
+    else
+        opts+=("curl -sL https://sentry.io/get-cli/ | sh")
+    fi
+    echo -e "${DIM}sentry-cli je potřeba jen pro nahrávání symbolů a source map do GlitchTipu (CRASH_REPORTING=glitchtip). Bez něj build funguje.${NC}"
+    if ! choose_one "Jak nainstalovat sentry-cli?" "${opts[@]}"; then
+        return 1
+    fi
+    run_shell "Instalace sentry-cli" "$REPLY_CHOICE" || return 1
+    has sentry-cli
+}
+
 detect_python() {
     if has python3; then
         PYTHON_CMD="python3"
@@ -472,6 +506,7 @@ ensure() {
 ensure "Git"          check_git       install_git
 ensure "Flutter SDK"  check_flutter   install_flutter
 ensure "Firebase CLI" check_firebase  install_firebase
+ensure "sentry-cli"   check_sentry_cli install_sentry_cli
 ensure "Python 3"     check_python    install_python
 ensure "Tkinter"      check_tkinter   install_tkinter
 if [ "$OS_TYPE" = "macos" ]; then
@@ -485,7 +520,7 @@ echo -e "${BLUE}=== Souhrn ===${NC}"
 [ ${#MISSING[@]}   -gt 0 ] && echo -e "${RED}Stále chybí:${NC} ${MISSING[*]}"
 
 # Kritické závislosti pro běh aplikace: Python 3 + Tkinter.
-# Flutter je potřeba pro buildy. Firebase / CocoaPods jen pro některé funkce.
+# Flutter je potřeba pro buildy. Firebase / sentry-cli / CocoaPods jen pro některé funkce.
 CRITICAL_MISSING=0
 for dep in "${MISSING[@]:-}" "${SKIPPED[@]:-}"; do
     case "$dep" in

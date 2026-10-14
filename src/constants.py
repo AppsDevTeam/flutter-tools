@@ -13,6 +13,24 @@ ADT_TOOLS_ENV_EXAMPLE = """PACKAGE_NAME=\"com.vasetvafirma.vasappka\"
 # Nastavení pro Desktop (macOS, Linux, Windows)
 # DESKTOP_APP_NAME="MojeAplikace"
 
+# Hlášení pádů a nahrávání symbolů: firebase (výchozí) | glitchtip | none.
+# Bez Firebase (glitchtip, none) iOS build nevyžaduje GoogleService-Info.plist.
+# CRASH_REPORTING=firebase
+
+# GlitchTip (CRASH_REPORTING=glitchtip): symboly a source mapy přes sentry-cli.
+# Token nepatří do repozitáře: zadává se v ADT tools (pole GlitchTip token), nebo SENTRY_AUTH_TOKEN, nebo ~/.sentryclirc.
+# Aplikace dostane název vydání jako --dart-define=SENTRY_RELEASE (předat do SentryFlutter.init).
+# GLITCHTIP_URL=https://glitchtip.firma.cz
+# GLITCHTIP_ORG=firma
+# GLITCHTIP_PROJECT=aplikace
+
+# Web: CanvasKit z vlastního serveru místo Google CDN (prohlížeč klienta nekontaktuje Google).
+# WEB_RESOURCES_CDN=false
+
+# Nasazení webu Deployerem (adt/docker-deployer) po pushi web buildu: stage z config/.env.<stage>
+# v projektu (BRANCH tam říká, kterou větev server klonuje). Bez hodnoty se volba v UI nenabízí.
+# WEB_DEPLOY_STAGE=test
+
 # Ukázka pro flavors
 # FIREBASE_APP_ID_cashdesk_prod="xxx"
 # FIREBASE_APP_ID_cashdesk_prerelease="xxx"
@@ -63,6 +81,8 @@ KEY_INSTALL_COCOAPODS = "install_cocoapods"
 KEY_CHECK_SQLITE_WEB = "check_sqlite_web"
 KEY_UPDATE_CHANGELOG = "update_changelog"
 KEY_CHANGELOG_VIA_CLAUDE = "changelog_via_claude"
+KEY_WEB_ZIP = "web_zip"
+KEY_WEB_DEPLOY = "web_deploy"
 
 KEY_BUMP_STRATEGY = "bump_strategy"
 

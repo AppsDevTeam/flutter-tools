@@ -19,10 +19,13 @@ Runs a parametrised Flutter build with all the steps you would normally chain by
 - **CHANGELOG.md update** — appends the new version with the bumped number, either as a raw `git log` list or written by Claude Code from the project's own rules (see [Release notes via Claude](#release-notes-via-claude)). Both are on by default for every preset; untick them per preset to opt out.
 - **Obfuscation** toggle (`--obfuscate --split-debug-info`) for mobile builds.
 - **Dart snapshot verification (Android)** — non-debug `apk` / `appbundle` builds drop the Gradle native-lib merge cache for the variant beforehand, and afterwards every `lib/<abi>/libapp.so` inside the artifact is matched by GNU build-id against the `libapp.so` this build actually produced. A stale snapshot or a missing ABI fails the build instead of shipping an app that runs old Dart code — or crashes on startup on the ABI whose snapshot is missing.
-- **Symbol upload to Firebase Crashlytics** — Android via the Firebase CLI (`crashlytics:symbols:upload`), iOS via the `upload-symbols` script that ships with the FirebaseCrashlytics CocoaPod.
+- **Symbol upload** to the project's crash reporting service, chosen by `CRASH_REPORTING` (see [Crash reporting](#crash-reporting)):
+  - **Firebase Crashlytics** (default) — Android via the Firebase CLI (`crashlytics:symbols:upload`), iOS via the `upload-symbols` script that ships with the FirebaseCrashlytics CocoaPod.
+  - **GlitchTip** — Dart symbols, iOS dSYMs, the Android R8 mapping and web source maps via `sentry-cli`.
 - **CocoaPods install** for iOS (clean reinstall before the build).
 - **Git push** of `pubspec.yaml` and `CHANGELOG.md` after a successful build.
-- **Web extras**: optional check for the `sqlite3.wasm` file expected by some apps.
+- **Web extras**: optional check for the `sqlite3.wasm` file expected by some apps; *CanvasKit z vlastního serveru* builds with `--no-web-resources-cdn`, so the browser loads Flutter's renderer from the app's own server instead of Google's CDN (stored in the project as `WEB_RESOURCES_CDN=false`); the ZIP of `build/web` is optional (on by default) — it is committed with the build, so it keeps every released build in git even after the next build rewrites `build/web`.
+- **Web deploy** (optional, needs git push) with Deployer, see [Web deploy](#web-deploy).
 - **Presets** — saved combinations of the above so you can reproduce a release with one click.
 
 The full output of every step is streamed into an in-app console.
@@ -73,6 +76,60 @@ IOS_PLIST_cashdesk_prerelease=ios/Firebase/GoogleService-Info-Prerelease.plist
 
 Keys without a flavor/env suffix are used as a fallback. The tool will create a stub file the first time you point it at a project.
 
+## Crash reporting
+
+`CRASH_REPORTING` in `adt_tools_config.env` picks the service that receives symbols: `firebase` (default, the original behaviour), `glitchtip` or `none`. Like other keys it can be set per flavor/env (`CRASH_REPORTING_<flavor>_<env>`).
+
+The build tab shows the service and lets you switch it (*Hlášení pádů*); the choice is written to `adt_tools_config.env`, so it applies to everyone building the project. With a per-flavor/env value in the file the selector only shows it. For GlitchTip, *Nastavit…* opens a dialog for the URL, organisation and project with a hint where to find each value. Switching to GlitchTip without them opens the dialog right away, and starting a build with symbol upload while any of them is missing offers the same dialog with *Uložit a pokračovat*, *Pokračovat bez nahrání symbolů* and *Zrušit*.
+
+- **firebase** — `GoogleService-Info.plist` is copied for iOS (`IOS_PLIST_*`, required), symbols go to Crashlytics (`FIREBASE_APP_ID`).
+- **glitchtip** — no Firebase files are needed. With *Nahrát symboly* checked, `sentry-cli` uploads:
+  - Android: Dart symbols from `--split-debug-info` and the R8 `mapping.txt` when the build is minified,
+  - iOS: Dart symbols and the archive's dSYMs,
+  - web: the build runs with `--source-maps`; the maps are uploaded to the release after the local verification and then **deleted from `build/web`**, so they reach neither the server nor git / the ZIP (also when the upload fails).
+- **none** — nothing is uploaded and iOS needs no `GoogleService-Info.plist`.
+
+GlitchTip settings:
+
+```env
+CRASH_REPORTING=glitchtip
+GLITCHTIP_URL=https://glitchtip.yourcompany.com
+GLITCHTIP_ORG=yourcompany
+GLITCHTIP_PROJECT=yourapp
+```
+
+These keys live in the project repository, so everyone who builds the project uploads to the same place. The build tab shows the service and GlitchTip target resolved for the selected flavor/env, so it is visible before the build where the symbols go; missing GlitchTip keys are reported before the build starts.
+
+The upload token is personal and never goes into the repository: enter it in the build tab (*GlitchTip token*, shown when the project uses GlitchTip). It is stored in the tool's local `config.json` (git-ignored) and shared by all projects. Without it the tool falls back to `SENTRY_AUTH_TOKEN` (or `GLITCHTIP_AUTH_TOKEN`) in the environment, then to a `sentry-cli login` (`~/.sentryclirc`). The token reaches `sentry-cli` through the environment, so it does not appear in the build console.
+
+Symbols are matched to errors by the release name `<PACKAGE_NAME>@<version>+<build>` (e.g. `cz.firma.app@1.2.3+45`). With `glitchtip` every build gets it as `--dart-define=SENTRY_RELEASE=…`; pass it to the SDK:
+
+```dart
+await SentryFlutter.init((options) {
+  options.dsn = '…';
+  options.release = const String.fromEnvironment('SENTRY_RELEASE');
+}, appRunner: …);
+```
+
+The SDK's default release does not match on the web (`package_info` returns the Dart package name there, not the app's package name).
+
+## Web deploy
+
+For projects deployed with Deployer from `adt/docker-deployer` (`deploy.php`, `config/.env.<stage>`, `make dep` / `make dep-pub`). The server clones the branch `BRANCH` from `config/.env.<stage>` and serves the committed `build/web`, so the deploy runs only after a successful push. Enable it in the project's `adt_tools_config.env`:
+
+```env
+WEB_DEPLOY_STAGE=test
+```
+
+Without the value the *Nasadit na server* option in the Web box stays disabled. With it, a web build with git push and the option checked continues after the push:
+
+1. Moves `BRANCH` on the remote to the build commit (`git push <remote> HEAD:<BRANCH>`, no force), unless the build already is on that branch. A branch with commits the build branch does not have stops the deploy; merge it by hand.
+2. Runs `composer install` when `vendor/bin/dep` is missing — through the `composer:2` Docker image when composer is not installed.
+3. `make dep -- <stage>` uploads the release to the servers (Docker running and the SSH key in the agent are required).
+4. Asks for confirmation, then `make dep-pub -- <stage>` switches the site to the new release. Declining leaves the release uploaded; publish later with `make dep-pub -- <stage>`.
+
+A failed deploy does not fail the build: the build is already committed and pushed, so only the deploy needs repeating.
+
 ## Release notes via Claude
 
 *Aktualizovat CHANGELOG.md* and *Sepsat přes Claude* are checked by default in every new preset, and a `config.json` written before this default existed is brought up to it once on start (`config_version` in the file records that the step ran, so a preset you untick afterwards stays unticked). With *Aktualizovat CHANGELOG.md* checked, the tool normally inserts a section `## [X.Y.Z+BUILD] - date` followed by one bullet per commit since the last change of `CHANGELOG.md`. Checking *Sepsat přes Claude* instead runs
@@ -92,7 +149,7 @@ Model choice: `sonnet` at `medium` effort writes well in Czech and groups commit
 ## Requirements
 
 - **Required**: Python 3, Tkinter, Git, Flutter SDK.
-- **Optional**: Firebase CLI (Crashlytics symbol upload), CocoaPods (iOS builds, macOS only), Claude Code CLI logged in (release notes via Claude).
+- **Optional**: Firebase CLI (Crashlytics symbol upload), sentry-cli (GlitchTip symbol and source map upload), CocoaPods (iOS builds, macOS only), Claude Code CLI logged in (release notes via Claude), Docker and make (web deploy).
 
 ## Setup
 

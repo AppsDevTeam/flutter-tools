@@ -4,7 +4,8 @@ from .constants import (
     PRESET_MANUAL, KEY_TRANSLATIONS_PATH, KEY_BUILD_TYPE, KEY_BUILD_MODE,
     KEY_FLAVOR, KEY_ENV, KEY_BUMP_STRATEGY, BUMP_PATCH, KEY_GIT_PUSH,
     KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS, KEY_INSTALL_COCOAPODS,
-    KEY_CHECK_SQLITE_WEB, KEY_UPDATE_CHANGELOG, KEY_CHANGELOG_VIA_CLAUDE
+    KEY_CHECK_SQLITE_WEB, KEY_UPDATE_CHANGELOG, KEY_CHANGELOG_VIA_CLAUDE,
+    KEY_WEB_ZIP, KEY_WEB_DEPLOY
 )
 
 # Defaults applied to every build preset; used both for new projects and lazy
@@ -22,6 +23,8 @@ PRESET_DEFAULTS = {
     KEY_CHECK_SQLITE_WEB: False,
     KEY_UPDATE_CHANGELOG: True,
     KEY_CHANGELOG_VIA_CLAUDE: True,
+    KEY_WEB_ZIP: True,
+    KEY_WEB_DEPLOY: False,
 }
 
 # One-off migrations of config.json, keyed by the version they bring the file to.
@@ -214,6 +217,14 @@ class ConfigManager:
             print(f"Konfigurace: Cesta pro projekt '{name}' nebyla nalezena: {path}")
             return False
         return True
+
+    def get_glitchtip_token(self):
+        """Osobní token pro GlitchTip, společný pro všechny projekty (config.json je mimo git)."""
+        return self.config.get('glitchtip_token', '')
+
+    def set_glitchtip_token(self, token):
+        self.config['glitchtip_token'] = token
+        self.save_config()
 
     def get_last_tab(self):
         return self.config.get('last_tab', 0)

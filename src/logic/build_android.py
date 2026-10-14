@@ -7,6 +7,10 @@ import platform
 
 from .build_common import execute_command, resolve_value, get_package_name
 from .android_snapshot_check import verify_dart_snapshots, normalized_name
+from .crash_reporting import (
+    PROVIDER_FIREBASE, PROVIDER_GLITCHTIP, PROVIDER_NONE,
+    GlitchTipSettings, upload_debug_files, upload_proguard_mapping,
+)
 from ..constants import KEY_BUILD_TYPE, KEY_FLAVOR, KEY_ENV, KEY_BUILD_MODE, \
     KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS
 
@@ -268,7 +272,20 @@ def run_android_tasks_post_build(logger, params, env_vars, actions_performed):
     if artifact_path and not verify_dart_snapshots(logger, artifact_path, flavor, env, mode):
         raise RuntimeError("Artefakt neobsahuje Dart kód z tohoto buildu.")
 
-    if not params.get(KEY_DISABLE_OBFUSCATION, False) and params.get(KEY_UPLOAD_SYMBOLS, False):
+    provider = params.get("_crash_provider", PROVIDER_FIREBASE)
+    upload_symbols = not params.get(KEY_DISABLE_OBFUSCATION, False) and params.get(KEY_UPLOAD_SYMBOLS, False)
+
+    if upload_symbols and provider == PROVIDER_NONE:
+        logger.info("CRASH_REPORTING=none — symboly se nenahrávají.")
+    elif upload_symbols and provider == PROVIDER_GLITCHTIP:
+        logger.header("--- Nahrávám symboly (Android) do GlitchTipu ---")
+        settings = GlitchTipSettings.resolve(logger, params, env_vars)
+        if settings:
+            dart_ok = upload_debug_files(logger, settings, [params.get("_symbols_dir")], "Dart symboly")
+            mapping_ok = upload_proguard_mapping(logger, settings)
+            if dart_ok and mapping_ok:
+                actions_performed["symbols"] = True
+    elif upload_symbols:
         logger.header("--- Nahrávám symboly (Android) na Firebase ---")
         firebase_app_id = resolve_value("FIREBASE_APP_ID", flavor, env, env_vars)
         

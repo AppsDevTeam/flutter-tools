@@ -9,7 +9,17 @@ import webbrowser
 from tkinter import messagebox
 
 from .build_common import get_package_name, execute_command, wait_for_paths
-from ..constants import KEY_FLAVOR, KEY_ENV, KEY_BUILD_MODE, KEY_CHECK_SQLITE_WEB, KEY_GIT_PUSH
+from .crash_reporting import GlitchTipSettings, release_name, upload_web_source_maps, remove_web_source_maps
+from ..constants import KEY_FLAVOR, KEY_ENV, KEY_BUILD_MODE, KEY_CHECK_SQLITE_WEB, KEY_GIT_PUSH, KEY_WEB_ZIP
+
+# Zdroje Flutteru pro web (CanvasKit) z Google CDN (výchozí), nebo s WEB_RESOURCES_CDN=false
+# z vlastního serveru: prohlížeč klienta pak nekontaktuje Google (GDPR, CSP, blokované sítě).
+WEB_RESOURCES_CDN_KEY = "WEB_RESOURCES_CDN"
+
+
+def uses_resources_cdn(env_vars):
+    return env_vars.get(WEB_RESOURCES_CDN_KEY, "true").strip().lower() not in ("false", "0", "no")
+
 
 def run_web_tasks_pre_build(logger):
     """
@@ -188,7 +198,8 @@ def restore_web_build_from_git(logger):
         logger.info("Složka build/web není verzovaná — jen odebrána z indexu, pracovní složka zůstává.")
 
 def run_web_tasks_post_build(logger, params, env_vars, actions_performed):
-    """Kompletní sada úloh po buildu webu."""
+    """Kompletní sada úloh po buildu webu. Vrací složku s výstupem, None = build zamítnut."""
+    web_build_dir = os.path.join('build', 'web')
     logger.header("--- Kontrola a úprava Web Buildu ---")
 
     # 1. Ověřit manifest.json
@@ -228,6 +239,20 @@ def run_web_tasks_post_build(logger, params, env_vars, actions_performed):
         return None
 
     logger.success("Verifikace OK.")
+
+    # GlitchTip: source mapy nahrát k vydání a pak je z build/web smazat (i když nahrání
+    # selže) — na veřejném serveru ani v gitu / ZIPu by z nich šel přečíst zdrojový kód.
+    if params.get("_web_source_maps", False):
+        logger.header("--- Nahrávám source mapy do GlitchTipu ---")
+        settings = GlitchTipSettings.resolve(logger, params, env_vars)
+        package_name = env_vars.get("PACKAGE_NAME")
+        if settings and package_name:
+            release = release_name(package_name, params.get("_version_name"), params.get("_build_number"))
+            if upload_web_source_maps(logger, settings, release, os.path.join('build', 'web')):
+                actions_performed["symbols"] = True
+        elif not package_name:
+            logger.error("PACKAGE_NAME chybí — source mapy nelze přiřadit k vydání, nenahrávám.")
+        remove_web_source_maps(logger, os.path.join('build', 'web'))
     # Jen s git pushem (jako u desktopu): jinak by build/web zůstal přidaný v indexu
     # a dostal se do příštího ručního commitu.
     if params.get(KEY_GIT_PUSH, False):
@@ -236,6 +261,9 @@ def run_web_tasks_post_build(logger, params, env_vars, actions_performed):
     else:
         logger.info("Git push je vypnutý — build/web se do gitu nepřidává.")
 
-    output_dir = _archive_web_build(logger, params, env_vars)
-            
-    return output_dir
+    # ZIP je pro předání buildu ručně; při nasazení z gitu (Deployer) není potřeba.
+    if not params.get(KEY_WEB_ZIP, True):
+        logger.info("ZIP se nevytváří (vypnuto).")
+        return web_build_dir
+
+    return _archive_web_build(logger, params, env_vars)
