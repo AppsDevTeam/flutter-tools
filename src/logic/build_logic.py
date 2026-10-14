@@ -1,6 +1,7 @@
 # src/logic/build_logic.py
 import os
 import re
+from tkinter import messagebox
 
 from ..constants import (
     ADT_PROJECT_CONFIG_FILENAME, PRESET_MANUAL,
@@ -20,9 +21,11 @@ from .build_common import (
 from .build_android import run_android_tasks_post_build, purge_stale_artifacts
 from .android_snapshot_check import purge_native_libs_cache
 from .build_ios import run_ios_tasks_pre_build, run_ios_tasks_post_build
-from .build_web import run_web_tasks_pre_build, run_web_tasks_post_build, restore_web_build_from_git
+from .build_web import (
+    run_web_tasks_pre_build, run_web_tasks_post_build, restore_web_build_from_git, uses_resources_cdn
+)
 from .build_desktop import run_desktop_tasks_post_build
-from .crash_reporting import PROVIDER_GLITCHTIP, get_provider, release_dart_define
+from .crash_reporting import PROVIDER_GLITCHTIP, GlitchTipSettings, get_provider, release_dart_define, verify_glitchtip
 from .web_deploy import read_deploy_stage, deploy_web
 
 
@@ -96,6 +99,27 @@ def run_flutter_build_logic(params, logger):
     crash_provider = get_provider(logger, flavor, env, env_vars)
     params["_crash_provider"] = crash_provider
     logger.info(f"📋 Hlášení pádů: {crash_provider}")
+
+    # GlitchTip se ověří hned, ne až po buildu: se špatným tokenem nebo projektem by build doběhl
+    # a symboly / source mapy by se nenahrály (a source mapy z webu se po pokusu mažou).
+    if (crash_provider == PROVIDER_GLITCHTIP and params.get(KEY_UPLOAD_SYMBOLS, False)
+            and build_type in ['apk', 'appbundle', 'ipa', 'web']):
+        logger.header("--- Ověřuji GlitchTip ---")
+        settings = GlitchTipSettings.resolve(logger, params, env_vars)
+        ok, message = verify_glitchtip(settings) if settings else (False, "Chybí nastavení GlitchTipu.")
+        if ok:
+            logger.success(message)
+        else:
+            logger.error(message)
+            if not messagebox.askyesno(
+                "GlitchTip",
+                f"{message}\n\nAno = pokračovat bez nahrání symbolů\nNe = zrušit build (nic se nezměnilo)",
+                icon='warning'
+            ):
+                logger.error("Build zrušen před začátkem, verze ani soubory se nezměnily.")
+                return
+            params[KEY_UPLOAD_SYMBOLS] = False
+            logger.warn("Pokračuji bez nahrání symbolů.")
 
     # --- KROK 1: Spuštění flutter pub get ---
     ret_code, _ = execute_command(['flutter', 'pub', 'get'], logger, title="Spouštím flutter pub get")
@@ -239,6 +263,10 @@ def run_flutter_build_logic(params, logger):
         logger.info("Web build se source mapami (pro GlitchTip).")
     elif build_type == 'web' and params.get(KEY_UPLOAD_SYMBOLS, False):
         logger.info(f"Web: symboly (source mapy) se nahrávají jen do GlitchTipu, projekt má {crash_provider}.")
+
+    if build_type == 'web' and not uses_resources_cdn(env_vars):
+        build_command.append('--no-web-resources-cdn')
+        logger.info("Web: CanvasKit z vlastního serveru (WEB_RESOURCES_CDN=false), bez Google CDN.")
 
     # 5.4 Smazání artefaktů z předchozích buildů
     # Přejmenované artefakty se v output adresáři hromadí a Flutter si při kontrole

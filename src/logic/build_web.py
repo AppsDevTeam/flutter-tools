@@ -12,6 +12,15 @@ from .build_common import get_package_name, execute_command, wait_for_paths
 from .crash_reporting import GlitchTipSettings, release_name, upload_web_source_maps, remove_web_source_maps
 from ..constants import KEY_FLAVOR, KEY_ENV, KEY_BUILD_MODE, KEY_CHECK_SQLITE_WEB, KEY_GIT_PUSH, KEY_WEB_ZIP
 
+# Zdroje Flutteru pro web (CanvasKit) z Google CDN (výchozí), nebo s WEB_RESOURCES_CDN=false
+# z vlastního serveru: prohlížeč klienta pak nekontaktuje Google (GDPR, CSP, blokované sítě).
+WEB_RESOURCES_CDN_KEY = "WEB_RESOURCES_CDN"
+
+
+def uses_resources_cdn(env_vars):
+    return env_vars.get(WEB_RESOURCES_CDN_KEY, "true").strip().lower() not in ("false", "0", "no")
+
+
 def run_web_tasks_pre_build(logger):
     """
     Úkoly před buildem webu:

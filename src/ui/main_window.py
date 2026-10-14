@@ -12,10 +12,20 @@ from ..logic.serializable_logic import run_json_serializable_logic
 from ..logic.build_logic import run_flutter_build_logic
 from ..logic.build_common import get_version_from_pubspec, calculate_bump, parse_env_file
 from ..logic.web_deploy import read_deploy_stage, stage_config_path
+from ..logic.build_web import WEB_RESOURCES_CDN_KEY, uses_resources_cdn
+from ..logic.env_file import set_env_values
+from .project_config_dialog import ConfigField, ProjectConfigDialog, RESULT_CANCEL, RESULT_SAVED
 from ..logic.crash_reporting import (
     PROVIDER_FIREBASE, PROVIDER_GLITCHTIP, PROVIDER_NONE, PARAM_GLITCHTIP_TOKEN,
-    read_provider, read_glitchtip_config
+    read_provider, read_glitchtip_config, glitchtip_token_problem
 )
+
+# Výběr služby pro hlášení pádů (CRASH_REPORTING v adt_tools_config.env).
+_PROVIDER_LABELS = {
+    PROVIDER_FIREBASE: "Firebase Crashlytics",
+    PROVIDER_GLITCHTIP: "GlitchTip",
+    PROVIDER_NONE: "Žádné",
+}
 from ..config_manager import PRESET_DEFAULTS
 
 from ..constants import (
@@ -35,11 +45,17 @@ class _SilentLogger:
 
 
 class MainWindow(tk.Toplevel):
+    # Výchozí velikost; výška se pak přizpůsobí obsahu (_fit_window_to_content).
+    _INITIAL_WIDTH = 800
+    _INITIAL_HEIGHT = 750
+
     def __init__(self, parent, config_manager, current_project_name):
         super().__init__(parent) 
         self.protocol("WM_DELETE_WINDOW", parent.on_main_window_close)
         self.title(f"ADT flutter tools - {current_project_name}")
-        self.geometry("800x750")
+        # Výška se přizpůsobí obsahu (viz _fit_window_to_content), aby byl vidět log i Spustit build.
+        self.geometry(f"{self._INITIAL_WIDTH}x{self._INITIAL_HEIGHT}")
+        self.minsize(700, 450)
 
         self.config_manager = config_manager
         self.current_project_name = current_project_name
@@ -78,6 +94,9 @@ class MainWindow(tk.Toplevel):
         # Výsledek posledního čtení adt_tools_config.env pro vybraný flavor/env
         self._crash_provider = PROVIDER_FIREBASE
         self._glitchtip_missing = []
+
+        # Nastavení projektu v adt_tools_config.env (git), ne v presetu: CanvasKit z vlastního serveru.
+        self.web_own_resources = tk.BooleanVar(value=False)
         # --- KONEC ZMĚNY ---
 
         self._create_widgets()
@@ -345,10 +364,20 @@ class MainWindow(tk.Toplevel):
         obfuscate_frame = ttk.LabelFrame(frame, text="Obfuskace & Symboly", padding=5)
         obfuscate_frame.grid(row=7, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
 
-        # Kam se symboly nahrají (z adt_tools_config.env pro vybraný flavor/env)
+        # Služba pro hlášení pádů: zapisuje se do adt_tools_config.env (platí pro všechny, kdo projekt
+        # buildí); kam se symboly nahrají, ukazuje popisek vedle.
+        crash_row = ttk.Frame(obfuscate_frame)
+        crash_row.pack(anchor="w", fill="x", pady=(0, 4))
+        ttk.Label(crash_row, text="Hlášení pádů:").pack(side="left")
+        self.crash_provider_combo = ttk.Combobox(
+            crash_row, values=list(_PROVIDER_LABELS.values()), state="readonly", width=20
+        )
+        self.crash_provider_combo.pack(side="left", padx=(5, 5))
+        self.crash_provider_combo.bind("<<ComboboxSelected>>", self._on_crash_provider_selected)
+        self.glitchtip_settings_btn = ttk.Button(crash_row, text="Nastavit…", command=self._edit_glitchtip_config)
         self.crash_info_label = ttk.Label(obfuscate_frame, text="", justify="left")
         self.crash_info_label.pack(anchor="w", pady=(0, 4))
-        
+
         self.obfuscate_check = self._create_checkbox(obfuscate_frame, "Vypnout obfuskaci", KEY_DISABLE_OBFUSCATION)
         self.obfuscate_check.pack(anchor="w")
 
@@ -363,9 +392,16 @@ class MainWindow(tk.Toplevel):
         # Token jen u GlitchTipu
         self.glitchtip_token_frame = ttk.Frame(obfuscate_frame)
         ttk.Label(self.glitchtip_token_frame, text="GlitchTip token:").pack(side="left")
-        ttk.Entry(self.glitchtip_token_frame, textvariable=self.glitchtip_token, show="•").pack(
-            side="left", fill="x", expand=True, padx=(5, 0)
+        self.glitchtip_token_entry = ttk.Entry(self.glitchtip_token_frame, textvariable=self.glitchtip_token, show="•")
+        self.glitchtip_token_entry.pack(side="left", fill="x", expand=True, padx=(5, 0))
+        # Token je skrytý; zobrazit jde kvůli kontrole (např. že není vložený dvakrát).
+        self.glitchtip_token_toggle = ttk.Button(
+            self.glitchtip_token_frame, text="Zobrazit", width=8, command=self._toggle_glitchtip_token
         )
+        self.glitchtip_token_toggle.pack(side="left", padx=(5, 0))
+        # Kontrola formátu hned při psaní (např. token vložený dvakrát); platnost ověří build.
+        self.glitchtip_token_hint = ttk.Label(obfuscate_frame, text="", foreground="#C62828")
+        self.glitchtip_token.trace_add("write", lambda *args: self._update_glitchtip_token_hint())
         
         self.web_frame = ttk.LabelFrame(frame, text="Web", padding=5)
         self.web_frame.grid(row=8, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
@@ -374,12 +410,25 @@ class MainWindow(tk.Toplevel):
             "Zkontrolovat sqlite3.wasm & sqflite_sw.js", 
             KEY_CHECK_SQLITE_WEB
         )
+        ttk.Checkbutton(
+            self.web_frame,
+            text="CanvasKit z vlastního serveru (bez Google CDN)",
+            variable=self.web_own_resources,
+            command=self._on_web_resources_toggled
+        ).pack(anchor="w", pady=(2, 0))
+        ttk.Label(
+            self.web_frame,
+            text=f"Prohlížeč klienta pak nestahuje vykreslovací jádro od Googlu (GDPR, CSP). "
+                 f"Nastavení projektu: {WEB_RESOURCES_CDN_KEY} v {ADT_PROJECT_CONFIG_FILENAME}.",
+            foreground="#666666", wraplength=520, justify="left"
+        ).pack(anchor="w", padx=(20, 0), pady=(0, 2))
         self._create_checkbox(self.web_frame, "Zabalit do ZIP (commitne se s buildem)", KEY_WEB_ZIP)
         # Text podle WEB_DEPLOY_STAGE, viz _update_web_deploy_ui
         self.web_deploy_check = self._create_checkbox(self.web_frame, "Nasadit na server", KEY_WEB_DEPLOY)
         
-        frame.grid_rowconfigure(9, weight=1, minsize=150)
-        self.build_console = scrolledtext.ScrolledText(frame, wrap=tk.WORD, state="disabled")
+        # Log se při malém okně zmenší jako první (váha), tlačítko pod ním zůstane vidět.
+        frame.grid_rowconfigure(9, weight=1, minsize=100)
+        self.build_console = scrolledtext.ScrolledText(frame, wrap=tk.WORD, height=10, state="disabled")
         self.build_console.grid(row=9, column=0, columnspan=3, sticky="nsew", pady=(5, 10))
         
         self.build_run_button = ttk.Button(frame, text="Spustit build", command=self._run_build_script)
@@ -557,6 +606,7 @@ class MainWindow(tk.Toplevel):
             if build_type == "web":
                 self.web_frame.grid() 
                 self._update_web_deploy_ui()
+                self.web_own_resources.set(not uses_resources_cdn(parse_env_file(_SilentLogger())))
             else:
                 self.web_frame.grid_remove() 
                 self.build_vars[KEY_CHECK_SQLITE_WEB].set(False)
@@ -565,6 +615,9 @@ class MainWindow(tk.Toplevel):
             pass
         finally:
             self._is_updating_ui = False # Vypneme ochranu
+
+        # Rámeček Web a jiné volby přidávají řádky: okno se zvětší, aby log a tlačítko nezmizely.
+        self.after_idle(self._fit_window_to_content)
 
     def _update_web_deploy_ui(self):
         """
@@ -590,7 +643,7 @@ class MainWindow(tk.Toplevel):
     def _update_crash_reporting_ui(self, build_type):
         """
         Načte službu pro hlášení pádů z adt_tools_config.env (sdílené v gitu) pro vybraný
-        flavor/env a ukáže ji: kam se symboly nahrají, popisek checkboxu, pole pro token.
+        flavor/env a ukáže ji: výběr služby, kam se symboly nahrají, popisek checkboxu, token.
         """
         flavor = self.build_vars[KEY_FLAVOR].get()
         env = self.build_vars[KEY_ENV].get()
@@ -599,27 +652,37 @@ class MainWindow(tk.Toplevel):
         self._crash_provider = provider
         self._glitchtip_missing = []
 
+        # Službu jde přepnout jen pro celý projekt; s hodnotou pro flavor/env (CRASH_REPORTING_<…>)
+        # by zápis obecné hodnoty nic nezměnil, proto výběr jen ukazuje.
+        overridden = any(key.startswith("CRASH_REPORTING_") for key in env_vars)
+        self.crash_provider_combo.set(_PROVIDER_LABELS[provider])
+        self.crash_provider_combo.config(state="disabled" if overridden else "readonly")
+
         if provider == PROVIDER_GLITCHTIP:
             values, self._glitchtip_missing = read_glitchtip_config(flavor, env, env_vars)
             if self._glitchtip_missing:
-                target = f"chybí {', '.join(self._glitchtip_missing)}"
+                info = f"Chybí {', '.join(self._glitchtip_missing)}, doplňte přes Nastavit…"
             else:
                 host = values["GLITCHTIP_URL"].split("://", 1)[-1].rstrip("/")
-                target = f"{host} / {values['GLITCHTIP_ORG']} / {values['GLITCHTIP_PROJECT']}"
-            info = f"Hlášení pádů: GlitchTip ({target})"
+                info = f"Symboly do {host} / {values['GLITCHTIP_ORG']} / {values['GLITCHTIP_PROJECT']}"
             symbols_text = "Nahrát source mapy do GlitchTipu" if build_type == "web" else "Nahrát symboly do GlitchTipu"
+            self.glitchtip_settings_btn.pack(side="left")
         elif provider == PROVIDER_NONE:
-            info = "Hlášení pádů: žádné"
+            info = "Projekt nemá hlášení pádů, symboly se nenahrávají"
             symbols_text = "Nahrát symboly (projekt nemá hlášení pádů)"
+            self.glitchtip_settings_btn.pack_forget()
         else:
-            info = "Hlášení pádů: Firebase Crashlytics"
+            info = "Symboly do Firebase Crashlytics"
             if unknown:
                 info += f" (neznámá hodnota CRASH_REPORTING='{unknown}')"
             symbols_text = "Nahrát symboly do Firebase Crashlytics"
             if build_type == "web":
                 symbols_text += " (na webu nic)"
+            self.glitchtip_settings_btn.pack_forget()
 
-        self.crash_info_label.config(text=f"{info} — {ADT_PROJECT_CONFIG_FILENAME}")
+        if overridden:
+            info += " — služba nastavená pro flavor/env v souboru"
+        self.crash_info_label.config(text=f"{info} ({ADT_PROJECT_CONFIG_FILENAME})")
         self.symbols_check.config(text=symbols_text)
 
         # Bez služby (nebo Firebase na webu) není co nahrát; hodnotu v presetu neměníme.
@@ -628,8 +691,97 @@ class MainWindow(tk.Toplevel):
 
         if provider == PROVIDER_GLITCHTIP:
             self.glitchtip_token_frame.pack(anchor="w", fill="x", padx=(20, 0), pady=(4, 0), after=self.symbols_check)
+            self._update_glitchtip_token_hint()
         else:
             self.glitchtip_token_frame.pack_forget()
+            self.glitchtip_token_hint.pack_forget()
+
+    def _on_crash_provider_selected(self, event=None):
+        """Zapíše službu do adt_tools_config.env; u GlitchTipu bez nastavení rovnou otevře dialog."""
+        label = self.crash_provider_combo.get()
+        provider = next(key for key, value in _PROVIDER_LABELS.items() if value == label)
+        set_env_values({"CRASH_REPORTING": provider})
+        self._update_build_ui_state()
+
+        if provider == PROVIDER_GLITCHTIP and self._glitchtip_missing:
+            self._edit_glitchtip_config()
+
+    def _edit_glitchtip_config(self):
+        """Dialog pro adresu, organizaci a projekt GlitchTipu (adt_tools_config.env)."""
+        self._ask_glitchtip_config(
+            intro="Kam se mají nahrávat symboly a source mapy. Token je osobní a zadává se zvlášť "
+                  "v poli GlitchTip token, do souboru projektu nepatří.",
+            skip_label=None,
+        )
+
+    def _ask_glitchtip_config(self, intro, skip_label):
+        """RESULT_* z dialogu; uložené hodnoty zapíše a obnoví UI."""
+        values, _ = read_glitchtip_config(
+            self.build_vars[KEY_FLAVOR].get(), self.build_vars[KEY_ENV].get(), parse_env_file(_SilentLogger())
+        )
+        result, new_values = ProjectConfigDialog.ask(
+            self,
+            title="GlitchTip",
+            intro=intro,
+            fields=[
+                ConfigField(
+                    "GLITCHTIP_URL", "Adresa GlitchTipu",
+                    "Adresa, na které GlitchTip běží (bez cesty).",
+                    value=values["GLITCHTIP_URL"], placeholder="https://glitchtip.appsdevteam.com",
+                ),
+                ConfigField(
+                    "GLITCHTIP_ORG", "Organizace",
+                    "Zkratka organizace z adresy v GlitchTipu: …/<organizace>/projects/…",
+                    value=values["GLITCHTIP_ORG"], placeholder="apps-dev-team",
+                ),
+                ConfigField(
+                    "GLITCHTIP_PROJECT", "Projekt",
+                    "Zkratka projektu z jeho nastavení v GlitchTipu (Settings → Projects).",
+                    value=values["GLITCHTIP_PROJECT"], placeholder="longview",
+                ),
+            ],
+            save_label="Uložit a pokračovat" if skip_label else "Uložit",
+            skip_label=skip_label,
+        )
+        if result == RESULT_SAVED:
+            set_env_values(new_values)
+            self._update_build_ui_state()
+        return result
+
+    def _fit_window_to_content(self):
+        """
+        Zvětší okno na výšku, kterou obsah potřebuje (nejvýš na výšku obrazovky); nikdy ho nezmenší,
+        aby se nepřepisovala velikost, kterou si uživatel nastavil.
+        """
+        try:
+            self.update_idletasks()
+            # Než se okno zobrazí, Tk hlásí velikost 1x1: platí výchozí.
+            mapped = self.winfo_ismapped()
+            width = self.winfo_width() if mapped else self._INITIAL_WIDTH
+            current = self.winfo_height() if mapped else self._INITIAL_HEIGHT
+            required = self.winfo_reqheight()
+            available = self.winfo_screenheight() - 100  # lišta menu a dock
+            if current < required:
+                self.geometry(f"{width}x{min(required, available)}")
+        except tk.TclError:
+            pass
+
+    def _update_glitchtip_token_hint(self):
+        problem = glitchtip_token_problem(self.glitchtip_token.get())
+        if problem and self.glitchtip_token_frame.winfo_manager():
+            self.glitchtip_token_hint.config(text=f"⚠ {problem}")
+            self.glitchtip_token_hint.pack(anchor="w", padx=(20, 0), after=self.glitchtip_token_frame)
+        else:
+            self.glitchtip_token_hint.pack_forget()
+
+    def _toggle_glitchtip_token(self):
+        hidden = self.glitchtip_token_entry.cget("show") != ""
+        self.glitchtip_token_entry.config(show="" if hidden else "•")
+        self.glitchtip_token_toggle.config(text="Skrýt" if hidden else "Zobrazit")
+
+    def _on_web_resources_toggled(self):
+        """CanvasKit z vlastního serveru: WEB_RESOURCES_CDN=false, vypnutí vrátí výchozí CDN."""
+        set_env_values({WEB_RESOURCES_CDN_KEY: "false" if self.web_own_resources.get() else None})
 
     def _show_project_options_menu(self):
         """Zobrazí kontextové menu pro úpravu aktuálního projektu."""
@@ -862,12 +1014,12 @@ class MainWindow(tk.Toplevel):
         if (self._crash_provider == PROVIDER_GLITCHTIP and self._glitchtip_missing
                 and str(self.symbols_check.cget("state")) != "disabled"
                 and self.build_vars[KEY_UPLOAD_SYMBOLS].get()):
-            if not messagebox.askyesno(
-                "GlitchTip",
-                f"V {ADT_PROJECT_CONFIG_FILENAME} chybí {', '.join(self._glitchtip_missing)}, "
-                "symboly se nenahrají.\n\nPokračovat v buildu?",
-                parent=self
-            ):
+            result = self._ask_glitchtip_config(
+                intro=f"Projekt hlásí pády do GlitchTipu, ale v {ADT_PROJECT_CONFIG_FILENAME} chybí "
+                      f"{', '.join(self._glitchtip_missing)}. Bez nich se symboly nenahrají.",
+                skip_label="Pokračovat bez nahrání symbolů",
+            )
+            if result == RESULT_CANCEL:
                 return
 
         params = self._gather_build_settings()

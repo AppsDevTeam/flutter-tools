@@ -12,7 +12,11 @@ nepatří: zadává se v UI (lokální config.json nástroje), záložně z prom
 SENTRY_AUTH_TOKEN (nebo GLITCHTIP_AUTH_TOKEN), případně z ~/.sentryclirc vývojáře.
 """
 import glob
+import json
 import os
+import re
+import urllib.error
+import urllib.request
 
 from ..constants import KEY_FLAVOR, KEY_ENV
 from .build_common import execute_command, resolve_value
@@ -96,6 +100,68 @@ class GlitchTipSettings:
         return values
 
 
+# Token GlitchTipu je 32 náhodných bajtů zapsaných hexadecimálně.
+_TOKEN_PATTERN = re.compile(r'^[0-9a-f]{64}$')
+
+# Oprávnění tokenu potřebné k vytvoření vydání a nahrání symbolů / source map.
+_RELEASES_SCOPE = "project:releases"
+
+
+def glitchtip_token_problem(token):
+    """Popis problému s formátem tokenu, nebo None (prázdný token se neřeší, je nepovinný)."""
+    token = (token or "").strip()
+    if not token or _TOKEN_PATTERN.match(token):
+        return None
+    if len(token) == 128 and token[:64] == token[64:]:
+        return "Token je vložený dvakrát za sebou."
+    return f"Token GlitchTipu má 64 znaků 0–9 a a–f, tento má {len(token)}."
+
+
+def verify_glitchtip(settings, timeout=10):
+    """
+    Ověří před buildem, že se symboly opravdu nahrají: token platí, má oprávnění project:releases
+    a organizace s projektem existují. Vrátí (True, popis), nebo (False, důvod). Token se nikam
+    nevypisuje.
+    """
+    if not settings.token:
+        return True, "Token není vyplněný, sentry-cli použije ~/.sentryclirc (neověřeno)."
+
+    problem = glitchtip_token_problem(settings.token)
+    if problem:
+        return False, problem
+
+    status, body = _glitchtip_get(settings, "/api/0/", timeout)
+    if status is None:
+        return False, f"GlitchTip {settings.url} není dostupný ({body})."
+    auth = body.get("auth") if isinstance(body, dict) else None
+    if status != 200 or not auth:
+        return False, "GlitchTip token neplatí (smazaný, nebo z jiného GlitchTipu)."
+    if _RELEASES_SCOPE not in (auth.get("scopes") or []):
+        return False, f"Token nemá oprávnění {_RELEASES_SCOPE}, symboly by nešly nahrát."
+
+    status, _ = _glitchtip_get(settings, f"/api/0/projects/{settings.org}/{settings.project}/", timeout)
+    if status == 404:
+        return False, f"Projekt {settings.org}/{settings.project} v GlitchTipu není (GLITCHTIP_ORG, GLITCHTIP_PROJECT)."
+    if status != 200:
+        return False, f"Projekt {settings.org}/{settings.project} nejde ověřit (HTTP {status})."
+
+    return True, f"GlitchTip ověřen: {settings.org}/{settings.project}, token platí ({auth.get('label') or 'bez názvu'})."
+
+
+def _glitchtip_get(settings, path, timeout):
+    """(HTTP status, JSON), nebo (None, popis chyby spojení)."""
+    request = urllib.request.Request(
+        settings.url + path, headers={"Authorization": f"Bearer {settings.token}", "Accept": "application/json"}
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status, json.loads(response.read() or b"null")
+    except urllib.error.HTTPError as e:
+        return e.code, None
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        return None, str(getattr(e, "reason", e))
+
+
 def _sentry_cli(logger, settings, args, title=None):
     ret_code, _ = execute_command(['sentry-cli', *args], logger, title=title or "", extra_env=settings.env())
     return ret_code == 0
@@ -149,8 +215,9 @@ def upload_web_source_maps(logger, settings, release, web_dir):
     logger.info(f"Nahrávám source mapy z '{web_dir}' k vydání {release}...")
     ok = (
         _sentry_cli(logger, settings, ['releases', 'new', release])
-        and _sentry_cli(logger, settings, ['releases', 'files', release, 'upload-sourcemaps', web_dir,
-                                           '--url-prefix', '~/', '--ext', 'js', '--ext', 'map'])
+        # sentry-cli 3 už nemá `releases files … upload-sourcemaps`, jen `sourcemaps upload`.
+        and _sentry_cli(logger, settings, ['sourcemaps', 'upload', '--release', release,
+                                           '--url-prefix', '~/', '--ext', 'js', '--ext', 'map', web_dir])
         and _sentry_cli(logger, settings, ['releases', 'finalize', release])
     )
     if ok:

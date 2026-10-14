@@ -24,6 +24,9 @@ ADT_TOOLS_ENV_EXAMPLE = """PACKAGE_NAME=\"com.vasetvafirma.vasappka\"
 # GLITCHTIP_ORG=firma
 # GLITCHTIP_PROJECT=aplikace
 
+# Web: CanvasKit z vlastního serveru místo Google CDN (prohlížeč klienta nekontaktuje Google).
+# WEB_RESOURCES_CDN=false
+
 # Nasazení webu Deployerem (adt/docker-deployer) po pushi web buildu: stage z config/.env.<stage>
 # v projektu (BRANCH tam říká, kterou větev server klonuje). Bez hodnoty se volba v UI nenabízí.
 # WEB_DEPLOY_STAGE=test

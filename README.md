@@ -24,7 +24,7 @@ Runs a parametrised Flutter build with all the steps you would normally chain by
   - **GlitchTip** — Dart symbols, iOS dSYMs, the Android R8 mapping and web source maps via `sentry-cli`.
 - **CocoaPods install** for iOS (clean reinstall before the build).
 - **Git push** of `pubspec.yaml` and `CHANGELOG.md` after a successful build.
-- **Web extras**: optional check for the `sqlite3.wasm` file expected by some apps; the ZIP of `build/web` is optional (on by default) — it is committed with the build, so it keeps every released build in git even after the next build rewrites `build/web`.
+- **Web extras**: optional check for the `sqlite3.wasm` file expected by some apps; *CanvasKit z vlastního serveru* builds with `--no-web-resources-cdn`, so the browser loads Flutter's renderer from the app's own server instead of Google's CDN (stored in the project as `WEB_RESOURCES_CDN=false`); the ZIP of `build/web` is optional (on by default) — it is committed with the build, so it keeps every released build in git even after the next build rewrites `build/web`.
 - **Web deploy** (optional, needs git push) with Deployer, see [Web deploy](#web-deploy).
 - **Presets** — saved combinations of the above so you can reproduce a release with one click.
 
@@ -79,6 +79,8 @@ Keys without a flavor/env suffix are used as a fallback. The tool will create a 
 ## Crash reporting
 
 `CRASH_REPORTING` in `adt_tools_config.env` picks the service that receives symbols: `firebase` (default, the original behaviour), `glitchtip` or `none`. Like other keys it can be set per flavor/env (`CRASH_REPORTING_<flavor>_<env>`).
+
+The build tab shows the service and lets you switch it (*Hlášení pádů*); the choice is written to `adt_tools_config.env`, so it applies to everyone building the project. With a per-flavor/env value in the file the selector only shows it. For GlitchTip, *Nastavit…* opens a dialog for the URL, organisation and project with a hint where to find each value. Switching to GlitchTip without them opens the dialog right away, and starting a build with symbol upload while any of them is missing offers the same dialog with *Uložit a pokračovat*, *Pokračovat bez nahrání symbolů* and *Zrušit*.
 
 - **firebase** — `GoogleService-Info.plist` is copied for iOS (`IOS_PLIST_*`, required), symbols go to Crashlytics (`FIREBASE_APP_ID`).
 - **glitchtip** — no Firebase files are needed. With *Nahrát symboly* checked, `sentry-cli` uploads:
