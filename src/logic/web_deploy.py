@@ -8,6 +8,9 @@ a po potvrzení `make dep-pub -- <stage>` na něj přepne.
 import os
 import platform
 import re
+import shutil
+import subprocess
+import time
 from tkinter import messagebox
 
 from .build_common import execute_command, parse_env_file
@@ -17,6 +20,10 @@ WEB_DEPLOY_STAGE_KEY = "WEB_DEPLOY_STAGE"
 # Deployer běží v Dockeru, který na agenta macOS (klíč s heslem z Keychainu) nedosáhne; Docker
 # Desktop i OrbStack ho zpřístupní tady. Skript vendor/bin/dep si ho vezme z SSH_AUTH_SOCK.
 _DOCKER_SSH_AGENT = "/run/host-services/ssh-auth.sock"
+
+# Po spuštění Dockeru: OrbStack naběhne za pár sekund, Docker Desktop klidně za minutu.
+_DOCKER_START_TIMEOUT = 120
+_DOCKER_POLL_INTERVAL = 2
 
 
 def read_deploy_stage(env_vars):
@@ -44,6 +51,10 @@ def deploy_web(logger, stage):
 
     if not _move_stage_branch(logger, branch):
         logger.error(f"Nasazení přerušeno, ručně: posunout {branch} a pak make dep -- {stage}.")
+        return False
+
+    if not _ensure_docker(logger):
+        logger.error(f"Nasazení přerušeno: Docker neběží. Po jeho spuštění: make dep -- {stage}")
         return False
 
     if not _ensure_deployer(logger):
@@ -121,11 +132,80 @@ def _explain_failure(output):
     if "Permission denied (publickey" in output:
         return ("server odmítl SSH klíč: je klíč v agentovi (ssh-add -l) a má uživatel stage na serveru "
                 "přidaný váš veřejný klíč?")
-    if "Cannot connect to the Docker daemon" in output or "docker: command not found" in output:
+    if ("Cannot connect to the Docker daemon" in output or "docker: command not found" in output
+            or "failed to connect to the docker API" in output):
         return "Docker neběží (spusťte Docker Desktop nebo OrbStack)."
     if "chybí build/web/index.html" in output:
         return "ve větvi stage chybí commitnutý build/web."
     return "viz výpis výše (běží Docker? je SSH klíč v agentovi?)."
+
+
+def _ensure_docker(logger):
+    """
+    Deployer běží v Dockeru. Když neběží, na macOS ho spustí bez ptaní (k nasazení je potřeba
+    vždy): OrbStack nebo Docker Desktop podle aktivního Docker kontextu, a počká, až odpovídá.
+    """
+    if _docker_running():
+        return True
+
+    start = _docker_start_command()
+    if start is None:
+        logger.error("Docker neběží (spusťte Docker Desktop nebo OrbStack).")
+        return False
+
+    name, command = start
+    logger.info(f"Docker neběží, spouštím {name}...")
+    ret_code, _ = execute_command(command, logger, log_stdout=False)
+    if ret_code != 0:
+        logger.error(f"{name} se nepodařilo spustit.")
+        return False
+
+    deadline = time.monotonic() + _DOCKER_START_TIMEOUT
+    while time.monotonic() < deadline:
+        if _docker_running():
+            logger.success(f"{name} běží.")
+            return True
+        time.sleep(_DOCKER_POLL_INTERVAL)
+
+    logger.error(f"{name} se do {_DOCKER_START_TIMEOUT} s nerozběhl.")
+    return False
+
+
+def _docker_running():
+    """`docker info` odpoví jen s běžícím démonem (bez dockeru nebo s chybou False)."""
+    try:
+        return subprocess.run(['docker', 'info'], capture_output=True, timeout=15).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+def _docker_start_command():
+    """(název, příkaz) pro spuštění Dockeru na macOS; jinde None (služba se spouští jinak)."""
+    if platform.system() != "Darwin":
+        return None
+
+    orbstack = ("OrbStack", ['orb', 'start'] if shutil.which('orb') else ['open', '-a', 'OrbStack'])
+    desktop = ("Docker Desktop", ['open', '-a', 'Docker'])
+    has_orbstack = bool(shutil.which('orb')) or os.path.exists('/Applications/OrbStack.app')
+    has_desktop = os.path.exists('/Applications/Docker.app')
+
+    # Aktivní kontext říká, na který Docker CLI míří (orbstack / desktop-linux).
+    context = ""
+    try:
+        result = subprocess.run(['docker', 'context', 'show'], capture_output=True, text=True, timeout=10)
+        context = result.stdout.strip() if result.returncode == 0 else ""
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+
+    if "orbstack" in context and has_orbstack:
+        return orbstack
+    if "desktop" in context and has_desktop:
+        return desktop
+    if has_orbstack:
+        return orbstack
+    if has_desktop:
+        return desktop
+    return None
 
 
 def _move_stage_branch(logger, branch):

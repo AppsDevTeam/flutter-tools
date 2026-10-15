@@ -125,10 +125,11 @@ Without the value the *Nasadit na server* option in the Web box stays disabled. 
 
 1. Moves `BRANCH` on the remote to the build commit (`git push <remote> HEAD:<BRANCH>`, no force), unless the build already is on that branch. A branch with commits the build branch does not have stops the deploy; merge it by hand.
 2. Runs `composer install` when `vendor/bin/dep` is missing — through the `composer:2` Docker image when composer is not installed.
-3. `make dep -- <stage>` uploads the release to the servers (Docker running and the SSH key in the agent are required).
-4. Asks for confirmation, then `make dep-pub -- <stage>` switches the site to the new release. Declining leaves the release uploaded; publish later with `make dep-pub -- <stage>`.
+3. Checks that Docker runs; on macOS a stopped Docker is started (OrbStack or Docker Desktop by the active Docker context) and the deploy waits until it responds.
+4. `make dep -- <stage>` uploads the release to the servers (the SSH key in the agent is required).
+5. Asks for confirmation, then `make dep-pub -- <stage>` switches the site to the new release. Declining leaves the release uploaded; publish later with `make dep-pub -- <stage>`.
 
-A failed deploy does not fail the build: the build is already committed and pushed, so only the deploy needs repeating.
+A failed deploy does not fail the build: the build is already committed and pushed, so only the deploy needs repeating. The final message then says that the deploy failed instead of reporting success.
 
 ## Release notes via Claude
 
