@@ -312,17 +312,23 @@ def run_flutter_build_logic(params, logger):
         pushed = perform_git_push(logger, params, version_name, build_number, actions_performed)
 
     # --- KROK 7.5: Nasazení webu (server bere build z gitu, proto až po pushi) ---
+    deploy_failed = False
     if build_type == 'web' and params.get(KEY_WEB_DEPLOY, False):
         stage = read_deploy_stage(env_vars)
         if not stage:
             logger.warn(f"Nasazení přeskočeno: v {ADT_PROJECT_CONFIG_FILENAME} chybí WEB_DEPLOY_STAGE.")
         elif not pushed:
             logger.error("Nasazení přeskočeno: build není na gitu (push vypnutý nebo selhal).")
+            deploy_failed = True
         elif not deploy_web(logger, stage):
             logger.warn("Build je hotový a na gitu, nasazení se nepovedlo (viz výše).")
+            deploy_failed = True
 
 
     # --- KROK 8: Otevření složky ---
     open_output_folder(logger, build_type, output_dir)
     
-    logger.success("\n✅ Proces buildu úspěšně dokončen!")
+    if deploy_failed:
+        logger.warn("\n⚠️ Build je hotový, nasazení webu se nepovedlo (viz výše).")
+    else:
+        logger.success("\n✅ Proces buildu úspěšně dokončen!")
