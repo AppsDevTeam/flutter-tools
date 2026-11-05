@@ -9,6 +9,7 @@ from datetime import date
 
 from ..constants import ADT_PROJECT_CONFIG_FILENAME, KEY_FLAVOR
 from .release_notes import write_release_notes_with_claude, missing_releases, raw_section, _git_log
+from . import build_session
 
 CHANGELOG_FILENAME = "CHANGELOG.md"
 
@@ -26,7 +27,14 @@ def execute_command(command, logger, title="", working_dir=None, log_stdout=True
     """
     Spustí externí příkaz a loguje jeho výstup. [extra_env] doplní proměnné prostředí
     příkazu — tudy jdou tajné hodnoty (tokeny), které se nesmí objevit v logu příkazu.
+
+    Během buildu (aktivní build_session) jde příkaz přerušit: po přerušení se nespustí
+    a běžící příkaz se ukončí i s potomky; v obou případech vyhodí BuildCancelled.
     """
+    session = build_session.current()
+    if session:
+        session.check()
+
     if title:
         logger.header(f"\n--- {title} ---")
     
@@ -43,24 +51,39 @@ def execute_command(command, logger, title="", working_dir=None, log_stdout=True
             text=True, encoding='utf-8', bufsize=1, startupinfo=startupinfo,
             cwd=working_dir,
             env={**os.environ, **extra_env} if extra_env else None,
+            **(session.popen_kwargs() if session else {}),
         )
-        
-        output_lines = []
-        for line in iter(process.stdout.readline, ''):
-            if log_stdout:
-                logger.raw(line)
-            output_lines.append(line)
-            
-        process.stdout.close()
-        process.wait()
-        return process.returncode, "".join(output_lines)
-        
     except FileNotFoundError:
         logger.error(f"PŘÍKAZ NENALEZEN: Příkaz '{command[0]}' nebyl nalezen.")
         return -1, f"PŘÍKAZ NENALEZEN: {command[0]}"
     except Exception as e:
         logger.error(f"CHYBA PŘI VYKONÁNÍ: {e}")
         return -1, str(e)
+
+    if session:
+        session.register_process(process)
+    output_lines = []
+    try:
+        for line in iter(process.stdout.readline, ''):
+            if log_stdout:
+                logger.raw(line)
+            output_lines.append(line)
+
+        process.stdout.close()
+        process.wait()
+        return_code = process.returncode
+    except Exception as e:
+        logger.error(f"CHYBA PŘI VYKONÁNÍ: {e}")
+        process.kill()
+        process.wait()
+        return_code = -1
+    finally:
+        if session:
+            session.unregister_process(process)
+
+    if session:
+        session.check()
+    return return_code, "".join(output_lines)
 
 def parse_env_file(logger, filepath=ADT_PROJECT_CONFIG_FILENAME):
     """Načte .env soubor a vrátí slovník."""

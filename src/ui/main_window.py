@@ -6,10 +6,12 @@ import queue
 
 # ... (importy logiky) ...
 from .ui_logger import UILogger
+from .swipe_button import SwipeButton
 from .project_selection import AddProjectDialog
 from ..logic.nbsp_logic import run_add_nbsp_logic
 from ..logic.serializable_logic import run_json_serializable_logic
 from ..logic.build_logic import run_flutter_build_logic
+from ..logic.build_session import BuildSession, PARAM_BUILD_SESSION
 from ..logic.build_common import get_version_from_pubspec, calculate_bump, parse_env_file
 from ..logic.web_deploy import read_deploy_stage, stage_config_path
 from ..logic.build_web import WEB_RESOURCES_CDN_KEY, uses_resources_cdn
@@ -48,6 +50,7 @@ class MainWindow(tk.Toplevel):
     # Výchozí velikost; výška se pak přizpůsobí obsahu (_fit_window_to_content).
     _INITIAL_WIDTH = 800
     _INITIAL_HEIGHT = 750
+    _CANCEL_TEXT = "Ukončit build"
 
     def __init__(self, parent, config_manager, current_project_name):
         super().__init__(parent) 
@@ -62,6 +65,9 @@ class MainWindow(tk.Toplevel):
         
         self.is_running = False
         self.output_queue = queue.Queue()
+        # Běžící build (přerušení swipe tlačítkem); None mimo build
+        self._build_session = None
+        self._build_cancel_state = None
 
         self._switch_to_project(current_project_name)
 
@@ -433,6 +439,10 @@ class MainWindow(tk.Toplevel):
         
         self.build_run_button = ttk.Button(frame, text="Spustit build", command=self._run_build_script)
         self.build_run_button.grid(row=10, column=0, columnspan=3)
+        # Během buildu nahradí tlačítko Spustit build (viz _set_ui_state)
+        self.build_cancel_button = SwipeButton(frame, text=self._CANCEL_TEXT, command=self._cancel_build)
+        self.build_cancel_button.grid(row=10, column=0, columnspan=3)
+        self.build_cancel_button.grid_remove()
 
         # Navázání logiky (beze změny)
         self.build_vars[KEY_BUILD_TYPE].trace_add("write", self._update_build_ui_state)
@@ -1024,6 +1034,8 @@ class MainWindow(tk.Toplevel):
 
         params = self._gather_build_settings()
         params[PARAM_GLITCHTIP_TOKEN] = self.glitchtip_token.get().strip()
+        self._build_session = BuildSession()
+        params[PARAM_BUILD_SESSION] = self._build_session
         self._run_script_in_thread(
             run_flutter_build_logic, 
             self.build_console, 
@@ -1059,6 +1071,45 @@ class MainWindow(tk.Toplevel):
         self.build_run_button.config(state=state)
         self.project_selector.config(state=state)
         self.preset_selector.config(state=state)
+
+        if is_running and self._build_session:
+            self.build_run_button.grid_remove()
+            self.build_cancel_button.reset(self._CANCEL_TEXT)
+            self._build_cancel_state = None
+            self.build_cancel_button.grid()
+        elif not is_running:
+            self._build_session = None
+            self.build_cancel_button.grid_remove()
+            self.build_run_button.grid()
+
+    def _cancel_build(self):
+        """Swipe dotažený do konce: přeruší build, ten pak vrátí změny."""
+        session = self._build_session
+        if session and session.cancel():
+            self._refresh_build_cancel_button()
+        else:
+            self._refresh_build_cancel_button(force=True)
+
+    def _refresh_build_cancel_button(self, force=False):
+        """Stav swipe tlačítka podle běžícího buildu (volá se i z _process_queue)."""
+        session = self._build_session
+        if not session:
+            return
+        if session.irreversible:
+            new_state = "locked"
+        elif session.cancel_requested:
+            new_state = "busy"
+        else:
+            new_state = "ready"
+        if new_state == self._build_cancel_state and not force:
+            return
+        self._build_cancel_state = new_state
+        if new_state == "locked":
+            self.build_cancel_button.set_locked("Už nejde přerušit")
+        elif new_state == "busy":
+            self.build_cancel_button.set_busy("Přerušuji…")
+        else:
+            self.build_cancel_button.reset(self._CANCEL_TEXT)
 
     def _browse_directory(self):
         # --- ZMĚNA: Ukládá do 'self.translations_path' ---
@@ -1130,4 +1181,5 @@ class MainWindow(tk.Toplevel):
                     console_widget.config(state="disabled")
         except queue.Empty:
             pass
+        self._refresh_build_cancel_button()
         self.after(100, self._process_queue)

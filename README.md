@@ -27,6 +27,7 @@ Runs a parametrised Flutter build with all the steps you would normally chain by
 - **Web extras**: optional check for the `sqlite3.wasm` file expected by some apps; *CanvasKit z vlastního serveru* builds with `--no-web-resources-cdn`, so the browser loads Flutter's renderer from the app's own server instead of Google's CDN (stored in the project as `WEB_RESOURCES_CDN=false`); the ZIP of `build/web` is optional (on by default) — it is committed with the build, so it keeps every released build in git even after the next build rewrites `build/web`.
 - **Web deploy** (optional, needs git push) with Deployer, see [Web deploy](#web-deploy).
 - **Presets** — saved combinations of the above so you can reproduce a release with one click.
+- **Cancel** — while a build runs, the run button turns into an *Ukončit build* swipe button. Swiping it to the end stops the running command with its child processes (Gradle, xcodebuild, pod, Claude) and returns the project to its state before the build: version, changelog, `GoogleService-Info.plist`, Pods and the Xcode project, `build/web`, new symbol folders and anything the build staged in git. Once the commit and push start, the build can no longer be cancelled. A failed build is rolled back the same way.
 
 The full output of every step is streamed into an in-app console.
 

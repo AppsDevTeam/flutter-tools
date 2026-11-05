@@ -21,42 +21,81 @@ from .build_common import (
 from .build_android import run_android_tasks_post_build, purge_stale_artifacts
 from .android_snapshot_check import purge_native_libs_cache
 from .build_ios import run_ios_tasks_pre_build, run_ios_tasks_post_build
-from .build_web import (
-    run_web_tasks_pre_build, run_web_tasks_post_build, restore_web_build_from_git, uses_resources_cdn
-)
+from .build_web import run_web_tasks_pre_build, run_web_tasks_post_build, uses_resources_cdn
+from . import build_session
+from .build_session import BuildCancelled, BuildSession, PARAM_BUILD_SESSION
 from .build_desktop import run_desktop_tasks_post_build
 from .crash_reporting import PROVIDER_GLITCHTIP, GlitchTipSettings, get_provider, release_dart_define, verify_glitchtip
 from .web_deploy import read_deploy_stage, deploy_web
 
 
+class _RollbackState:
+    """Co build změnil a při selhání nebo přerušení se má vrátit."""
+
+    def __init__(self, session):
+        self.session = session
+        self.original_version_line = None
+        # Stav CHANGELOG.md před aktualizací; changelog_snapshot_taken říká, že se
+        # changelog měnil a má se vrátit (None je i platný stav „neexistoval“).
+        self.original_changelog = None
+        self.changelog_snapshot_taken = False
+
+
 def run_flutter_build_logic(params, logger):
     """
-    Hlavní orchestrátor buildu.
+    Hlavní orchestrátor buildu. Build jde z UI přerušit přes BuildSession
+    (params[PARAM_BUILD_SESSION]); přerušený i neúspěšný build vrátí projekt
+    do stavu před buildem. Po začátku commitu a pushe už přerušit nejde.
     """
-    
-    # --- Definice záchranné funkce ---
-    original_version_line = None 
-    # Stav CHANGELOG.md před aktualizací; changelog_snapshot_taken říká, že se
-    # changelog měnil a při selhání se má vrátit (None je i platný stav „neexistoval“).
-    original_changelog = None
-    changelog_snapshot_taken = False
+    session = params.get(PARAM_BUILD_SESSION) or BuildSession()
+    state = _RollbackState(session)
+    build_session.activate(session)
+    try:
+        _run_build(params, logger, state)
+    except BuildCancelled:
+        logger.warn("\n⏹ Build přerušen — vracím změny...")
+        _rollback(params, logger, state)
+        logger.warn("⏹ Build přerušen, projekt je ve stavu před buildem.")
+    except Exception as e:
+        if session.irreversible:
+            # Commit / push už proběhl, verze a changelog v něm jsou — nic se nevrací.
+            logger.error(f"\n❌ Neočekávaná chyba po začátku commitu a pushe: {e}")
+        else:
+            _handle_failure(params, logger, state, f"Neočekávaná chyba: {e}")
+    finally:
+        build_session.deactivate()
+        session.discard_backups()
+
+
+def _handle_failure(params, logger, state, message):
+    """Zpracuje chybu buildu a provede rollback, pokud je třeba."""
+    logger.error(f"\n❌ {message}")
+    _rollback(params, logger, state)
+    logger.error("Build byl ukončen s chybou.")
+
+
+def _rollback(params, logger, state):
+    """Vrátí verzi, changelog a soubory ze žurnálu session do stavu před buildem."""
+    # Bez aktivní session vracení nepřeruší execute_command ani po přerušení buildu.
+    build_session.deactivate()
+
+    bump_strategy = params.get(KEY_BUMP_STRATEGY, BUMP_NONE)
+    if bump_strategy != BUMP_NONE and state.original_version_line:
+        revert_pubspec_version(logger, state.original_version_line)
+
+    if state.changelog_snapshot_taken:
+        restore_changelog(logger, state.original_changelog)
+
+    state.session.restore(logger)
+
+
+def _run_build(params, logger, state):
+    """Kroky buildu. Selhání řeší přes _handle_failure, přerušení vyhodí BuildCancelled."""
+    session = state.session
     build_type = params.get(KEY_BUILD_TYPE, "apk")
 
-    def _handle_failure(message):
-        """Zpracuje chybu buildu a provede rollback, pokud je třeba."""
-        logger.error(f"\n❌ {message}")
-        
-        bump_strategy = params.get(KEY_BUMP_STRATEGY, BUMP_NONE)
-        if bump_strategy != BUMP_NONE and original_version_line:
-            revert_pubspec_version(logger, original_version_line)
-
-        if changelog_snapshot_taken:
-            restore_changelog(logger, original_changelog)
-        
-        if build_type == 'web':
-            restore_web_build_from_git(logger)
-            
-        logger.error("Build byl ukončen s chybou.")
+    def _handle_failure_here(message):
+        _handle_failure(params, logger, state, message)
 
     # --------------------------------------------------------------------------
     # 1. Příprava proměnných
@@ -121,6 +160,8 @@ def run_flutter_build_logic(params, logger):
             params[KEY_UPLOAD_SYMBOLS] = False
             logger.warn("Pokračuji bez nahrání symbolů.")
 
+    session.check()
+
     # --- KROK 1: Spuštění flutter pub get ---
     ret_code, _ = execute_command(['flutter', 'pub', 'get'], logger, title="Spouštím flutter pub get")
     if ret_code != 0:
@@ -133,7 +174,7 @@ def run_flutter_build_logic(params, logger):
         logger.error("Chyba: Nelze pokračovat bez platné verze v pubspec.yaml.")
         return
     
-    original_version_line = full_ver_line 
+    state.original_version_line = full_ver_line
 
     # --- KROK 3: Povýšení verze ---
     strategy = params.get(KEY_BUMP_STRATEGY, BUMP_NONE)
@@ -151,9 +192,10 @@ def run_flutter_build_logic(params, logger):
 
     # --- KROK 3.5: Aktualizace CHANGELOG.md ---
     if params.get(KEY_UPDATE_CHANGELOG, False):
+        session.check()
         try:
-            original_changelog = snapshot_changelog()
-            changelog_snapshot_taken = True
+            state.original_changelog = snapshot_changelog()
+            state.changelog_snapshot_taken = True
         except Exception as e:
             logger.warn(f"Nepodařilo se uložit stav changelogu pro případné vrácení: {e}")
         if update_changelog(
@@ -166,11 +208,12 @@ def run_flutter_build_logic(params, logger):
             logger.warn("Aktualizace changelogu selhala — pokračuji v buildu.")
 
     # --- KROK 4: Platform-specific úkoly PŘED buildem ---
+    session.check()
     if build_type == 'ipa':
         # Zde se řeší CocoaPods a Plist
         success = run_ios_tasks_pre_build(logger, params, env_vars)
         if not success:
-            _handle_failure("Příprava iOS selhala.")
+            _handle_failure_here("Příprava iOS selhala.")
             return
         if params.get(KEY_INSTALL_COCOAPODS, False):
             actions_performed["cocoapods"] = True
@@ -241,7 +284,9 @@ def run_flutter_build_logic(params, logger):
         
         symbols_dir = f"crashlytics/{build_type}{symbols_flavor_part}_{major}_{minor}_{patch}"
         
-        # Vytvoření složky (pro jistotu)
+        # Vytvoření složky (pro jistotu); nová složka se při přerušení / selhání smaže
+        build_session.track_new_dir("crashlytics")
+        build_session.track_new_dir(symbols_dir)
         if not os.path.exists(symbols_dir):
             try:
                 os.makedirs(symbols_dir)
@@ -284,7 +329,7 @@ def run_flutter_build_logic(params, logger):
     ret_code, _ = execute_command(build_command, logger, f"Spouštím Flutter Build ({build_type} - {build_mode})")
     
     if ret_code != 0:
-        _handle_failure(f"Build selhal s chybovým kódem: {ret_code}")
+        _handle_failure_here(f"Build selhal s chybovým kódem: {ret_code}")
         return 
 
     # --- KROK 6: Platform-specific úkoly PO buildu ---
@@ -298,13 +343,17 @@ def run_flutter_build_logic(params, logger):
         elif build_type == 'web':
             output_dir = run_web_tasks_post_build(logger, params, env_vars, actions_performed)
             if output_dir is None: # Web verifikace selhala
-                 _handle_failure("Web build zamítnut nebo selhal.")
+                 _handle_failure_here("Web build zamítnut nebo selhal.")
                  return
         elif build_type in ['macos', 'linux', 'windows']:
             output_dir = run_desktop_tasks_post_build(logger, params, env_vars, actions_performed)
     except Exception as e:
-        _handle_failure(f"Chyba při post-build úlohách: {e}")
+        _handle_failure_here(f"Chyba při post-build úlohách: {e}")
         return
+
+    # Commit a push (a nasazení webu) vrátit nejde — od teď se build nepřerušuje.
+    # Přerušení, které přišlo do této chvíle, build ještě vrátí (vyhodí BuildCancelled).
+    session.enter_irreversible()
 
     # --- KROK 7: Nahrání na Git ---
     pushed = False
