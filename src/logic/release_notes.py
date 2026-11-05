@@ -143,10 +143,12 @@ Jedna věta o zaměření releasu (jen když je změn víc než zhruba osm).
 
 - Piš česky s diakritikou, věcně a konkrétně — změny popiš tak, aby jim rozuměl
   i ne-programátor (co se stalo a proč)
-- Názvy z kódu aplikace (třídy, metody, widgety, soubory, proměnné) do záznamu nepiš —
-  kdo hledá implementaci, najde ji v commitu. Ponech jen identifikátory, se kterými se
-  potká i někdo mimo kód aplikace: pole a nastavení z BE/BO (`plan.tablet_landscape_enabled`),
-  endpointy API, události websocketu, názvy a verze knihoven
+- Do záznamu nepiš žádné identifikátory: názvy tříd, metod, widgetů, souborů
+  a proměnných, ale ani polí z BE/BO, endpointů API, událostí websocketu nebo klíčů
+  konfigurace — kdo je hledá, najde je v commitu nebo tiketu. Popiš je slovy, např.
+  „termín nastavený v BO dostane pokladna při přihlášení a při změně hned přes websocket“,
+  ne „pole `extended_logging_until` a událost `extendedLoggingChanged`“. Výjimkou jsou
+  jen název a verze knihovny při jejím povýšení (presentation_displays 1.1.1)
 - Oprava chyby říká, co uživatel viděl a kdy (např. „po přepnutí záložky padala aplikace
   při přesunu účtu"), ne jen co se změnilo v kódu
 - Změny bez dopadu na chování aplikace (přejmenování, přesuny a čištění kódu,
