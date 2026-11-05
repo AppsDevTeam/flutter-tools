@@ -22,6 +22,7 @@ from ..constants import (
     RELEASE_NOTES_COMMAND_NAME, RELEASE_NOTES_MODEL, RELEASE_NOTES_EFFORT,
     RELEASE_NOTES_FALLBACK_MODEL, RELEASE_NOTES_TIMEOUT_S,
 )
+from . import build_session
 
 CHANGELOG_FILENAME = "CHANGELOG.md"
 COMMAND_DIR = os.path.join(".claude", "commands")
@@ -280,6 +281,9 @@ def ensure_release_notes_command(logger, env_vars):
         return True
 
     try:
+        build_session.track_new_dir(".claude")
+        build_session.track_new_dir(COMMAND_DIR)
+        build_session.snapshot_file(COMMAND_FILE)
         os.makedirs(COMMAND_DIR, exist_ok=True)
         with open(COMMAND_FILE, "w", encoding="utf-8", newline="\n") as f:
             f.write(render_command_template(env_vars))
@@ -397,11 +401,16 @@ def _run_streaming(command, logger, env, timeout_s):
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
 
+    session = build_session.current()
+    if session:
+        session.check()
+
     try:
         process = subprocess.Popen(
             command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, encoding="utf-8", errors="replace", bufsize=1,
             startupinfo=startupinfo, env=env,
+            **(session.popen_kwargs() if session else {}),
         )
     except FileNotFoundError:
         logger.error(f"PŘÍKAZ NENALEZEN: {command[0]}")
@@ -418,6 +427,8 @@ def _run_streaming(command, logger, env, timeout_s):
 
     watchdog = threading.Timer(timeout_s, _kill)
     watchdog.start()
+    if session:
+        session.register_process(process)
 
     output_lines = []
     try:
@@ -428,6 +439,12 @@ def _run_streaming(command, logger, env, timeout_s):
         process.wait()
     finally:
         watchdog.cancel()
+        if session:
+            session.unregister_process(process)
+
+    # Přerušený build: Claude mohl CHANGELOG.md rozepsat, vrátí ho rollback buildu.
+    if session:
+        session.check()
 
     if timed_out.is_set():
         return None, "".join(output_lines)

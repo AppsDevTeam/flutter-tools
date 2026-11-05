@@ -7,6 +7,7 @@ import stat
 
 # Importujeme konstanty a funkce
 from .build_common import execute_command
+from . import build_session
 from .crash_reporting import PROVIDER_FIREBASE, PROVIDER_GLITCHTIP, PROVIDER_NONE, GlitchTipSettings, upload_debug_files
 from ..constants import KEY_FLAVOR, KEY_ENV, KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS, KEY_INSTALL_COCOAPODS
 
@@ -164,8 +165,15 @@ def run_ios_tasks_pre_build(logger, params, env_vars):
             logger.error(f"Složka '{ios_dir}' neexistuje. Nelze spustit pod install.")
             return False
 
+        # Pod deintegrate / install přepisují projekt Xcode — při přerušení nebo selhání
+        # se vrátí. Pods se místo smazání odloží, aby šly vrátit bez nové instalace.
+        for path in ('Podfile.lock', os.path.join('Runner.xcodeproj', 'project.pbxproj'),
+                     os.path.join('Runner.xcworkspace', 'contents.xcworkspacedata')):
+            build_session.snapshot_file(os.path.join(ios_dir, path))
+        logger.info("Odkládám složku Pods (vrátí se, když build nedoběhne)...")
+        build_session.remove_dir(os.path.join(ios_dir, 'Pods'))
+
         commands = [
-            (['rm', '-rf', 'Pods'], "Mazání složky Pods"),
             (['pod', 'cache', 'clean', '--all'], "Čištění cache"),
             (['pod', 'deintegrate'], "Pod deintegrate"),
             (['pod', 'setup'], "Pod setup"),
@@ -200,6 +208,7 @@ def run_ios_tasks_pre_build(logger, params, env_vars):
         return False
         
     try:
+        build_session.snapshot_file(plist_dst)
         shutil.copy(plist_src, plist_dst)
         logger.success(f"Zkopírováno: '{plist_src}' -> '{plist_dst}'")
     except Exception as e:

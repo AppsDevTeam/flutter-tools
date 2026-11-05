@@ -6,6 +6,7 @@ import tarfile
 import zipfile
 
 from .build_common import get_pubspec_name, execute_command, wait_for_glob, wait_for_paths
+from . import build_session
 from ..constants import KEY_GIT_PUSH
 
 def _get_desktop_app_name(env_vars):
@@ -20,6 +21,7 @@ def _stage_desktop_artifact_to_git(logger, archive_path):
     if os.path.exists(archive_path):
         logger.info(f"Přidávám desktop build artefakt do gitu: {archive_path}")
         # git add -f, protože build složka je v .gitignore
+        build_session.track_staged(archive_path)
         execute_command(['git', 'add', '-f', archive_path], logger)
         return True
     return False

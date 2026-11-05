@@ -9,6 +9,7 @@ import webbrowser
 from tkinter import messagebox
 
 from .build_common import get_package_name, execute_command, wait_for_paths
+from . import build_session
 from .crash_reporting import GlitchTipSettings, release_name, upload_web_source_maps, remove_web_source_maps
 from ..constants import KEY_FLAVOR, KEY_ENV, KEY_BUILD_MODE, KEY_CHECK_SQLITE_WEB, KEY_GIT_PUSH, KEY_WEB_ZIP
 
@@ -24,15 +25,16 @@ def uses_resources_cdn(env_vars):
 def run_web_tasks_pre_build(logger):
     """
     Úkoly před buildem webu:
-    1. Smazání staré složky build/web (Clean)
+    1. Smazání staré složky build/web (Clean) — během buildu je jen odložená, aby ji
+       přerušený nebo neúspěšný build vrátil (i s odebráním z indexu gitu).
     """
     web_build_dir = os.path.join('build', 'web')
     if os.path.exists(web_build_dir):
         logger.info(f"Mazání staré složky '{web_build_dir}'...")
-        try:
-            shutil.rmtree(web_build_dir)
-        except Exception as e:
-            logger.warn(f"Nepodařilo se smazat '{web_build_dir}': {e}")
+    try:
+        build_session.remove_dir(web_build_dir, unstage=True)
+    except Exception as e:
+        logger.warn(f"Nepodařilo se smazat '{web_build_dir}': {e}")
     return True
 
 def _add_version_query_to_assets(logger, build_number):
@@ -173,6 +175,7 @@ def _archive_web_build(logger, params, env_vars):
     archive_name = f"{package_name}-v{version_name}({build_number}){flavor_part}{file_env_suffix}-{mode}.web"
     output_path = os.path.join(os.getcwd(), archive_name)
     try:
+        build_session.snapshot_file(output_path + ".zip")
         logger.info(f"Vytvářím archiv z '{source_dir}'...")
         shutil.make_archive(output_path, 'zip', source_dir)
         final_filename = output_path + ".zip"
@@ -181,21 +184,6 @@ def _archive_web_build(logger, params, env_vars):
     except Exception as e:
         logger.error(f"Chyba při balení webu: {e}")
         return None
-
-def restore_web_build_from_git(logger):
-    """
-    Po neúspěšném buildu vrátí build/web: z indexu ho odebere vždy (i když v gitu
-    verzovaný není, ale build ho už přidal), verzovaný navíc vrátí i v pracovní složce.
-    """
-    logger.warn("Obnovuji build/web do původního stavu z Gitu...")
-    execute_command(['git', 'reset', '-q', '--', 'build/web'], logger, log_stdout=False)
-
-    ret_code, _ = execute_command(['git', 'ls-files', '--error-unmatch', 'build/web'], logger, log_stdout=False)
-    if ret_code == 0:
-        execute_command(['git', 'restore', 'build/web'], logger)
-        logger.success("Složka build/web byla úspěšně obnovena ze stavu v gitu.")
-    else:
-        logger.info("Složka build/web není verzovaná — jen odebrána z indexu, pracovní složka zůstává.")
 
 def run_web_tasks_post_build(logger, params, env_vars, actions_performed):
     """Kompletní sada úloh po buildu webu. Vrací složku s výstupem, None = build zamítnut."""
