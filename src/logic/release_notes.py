@@ -99,8 +99,8 @@ Claude" u aktualizace CHANGELOG.md). Pravidla níže patří projektu — upravu
 7. Nové záznamy vlož **nad dosavadní nejnovější záznam** (hned pod úvodní text souboru),
    nejnovější verze nahoře
 8. Než skončíš, projdi seznam commitů z kroku 3 ještě jednou a ověř, že každý je
-   v záznamu zastoupen (vlastní odrážkou, nebo sloučený do jiné); samostatná oprava
-   pádu nesmí zmizet sloučením
+   v záznamu zastoupen (vlastní odrážkou, nebo sloučený do jiné), kromě commitů, které
+   podle Pravidel do záznamu nepatří; samostatná oprava pádu nesmí zmizet sloučením
 9. Projdi v novém záznamu každý odkaz na Trello a k němu celou Trello URL z commitu
    (předmět i tělo). Obsahuje-li její slug klíč Jira (např. `tapy-<číslo>`), uveď místo
    odkazu na Trello tiket Jira podle pravidla v sekci Odkazy na tikety — odkaz na Trello
@@ -140,13 +140,21 @@ Jedna věta o zaměření releasu (jen když je změn víc než zhruba osm).
 
 ## Pravidla
 
-- Piš česky s diakritikou, věcně a konkrétně — uživatelsky viditelné změny popiš tak, aby
-  jim rozuměl i ne-programátor (co se stalo a proč); u technických změn uveď dotčené
-  třídy/soubory v backtickách
+- Piš česky s diakritikou, věcně a konkrétně — změny popiš tak, aby jim rozuměl
+  i ne-programátor (co se stalo a proč)
+- Názvy z kódu aplikace (třídy, metody, widgety, soubory, proměnné) do záznamu nepiš —
+  kdo hledá implementaci, najde ji v commitu. Ponech jen identifikátory, se kterými se
+  potká i někdo mimo kód aplikace: pole a nastavení z BE/BO (`plan.tablet_landscape_enabled`),
+  endpointy API, události websocketu, názvy a verze knihoven
 - Oprava chyby říká, co uživatel viděl a kdy (např. „po přepnutí záložky padala aplikace
   při přesunu účtu"), ne jen co se změnilo v kódu
-- Interní drobnosti (formátování, CI, refactoring, úpravy testů, launch konfigurace)
-  shrň do jedné–dvou odrážek v sekci **Infrastruktura**
+- Změny bez dopadu na chování aplikace (přejmenování, přesuny a čištění kódu,
+  formátování, komentáře, úpravy testů, launch konfigurace) do záznamu nepatří ani
+  souhrnně
+- Sekce **Infrastruktura** je pro interní změny s dopadem na build, vydávání nebo riziko
+  regrese (CI, závislosti, verze SDK, větší refactoring). U refactoringu napiš, kterou
+  část aplikace se vyplatí přetestovat, ne co se v kódu přejmenovalo. Nemá-li sekce
+  obsah, vynech ji
 - Commity, které mění jen `CHANGELOG.md`, `.claude/commands/release-notes.md` nebo
   `adt_tools_config.env`, do záznamu nepatří — jsou to úpravy release notes samotných
 - Řádky `Co-Authored-By` v tělech commitů ignoruj
