@@ -2,29 +2,132 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 import os
+import queue
+import subprocess
+import sys
+from .. import instance_link
 from ..config_manager import ConfigManager
 from .main_window import MainWindow
 from .project_selection import AddProjectDialog
 
 class App(tk.Tk):
-    # ... (__init__ zůstává stejný) ...
-    def __init__(self):
+    _EDITOR_POLL_MS = 300
+
+    def __init__(self, initial_project_path=None):
         super().__init__()
-        self.title("ADT flutter tools") 
+        self.title("ADT flutter tools")
         self.config_manager = ConfigManager()
         self.original_cwd = os.getcwd()
 
         self.main_window = None
 
-        last_project = self.config_manager.get_last_project()
-        
+        # Requests from the VS Code button arrive on a socket thread; Tk handles them here.
+        self._editor_requests = queue.Queue()
+        self._stop_instance_link = instance_link.listen(self._editor_requests.put)
+        self.after(self._EDITOR_POLL_MS, self._poll_editor_requests)
+
+        # Project of the folder the app was started for (VS Code), before the last used one.
+        start_project = self._project_for_path(initial_project_path) if initial_project_path else None
+        last_project = start_project or self.config_manager.get_last_project()
+
         if last_project and self.config_manager.validate_project(last_project):
-            print(f"--- Načítám poslední platný projekt: {last_project} ---")
+            print(f"--- Načítám projekt: {last_project} ---")
             self.withdraw()
             self.show_main_app(last_project)
         else:
             print("--- Nenačten platný poslední projekt, zobrazuji výběr ---")
             self.show_project_selection_ui()
+
+        if initial_project_path and start_project is None:
+            self.after(200, lambda: self._offer_new_project(initial_project_path))
+
+    def destroy(self):
+        self._stop_instance_link()
+        super().destroy()
+
+    def open_project_from_editor(self, path):
+        """VS Code button: show the app and switch to the project of [path]."""
+        self._bring_to_front()
+        if not path:
+            return
+
+        project_name = self._project_for_path(path)
+        if project_name is None:
+            self._offer_new_project(path)
+            return
+        if self.main_window and self.main_window.current_project_name == project_name:
+            return
+        if self._warn_if_busy(project_name):
+            return
+
+        print(f"--- VS Code: přepínám na projekt {project_name} ---")
+        self.withdraw()
+        self.show_main_app(project_name)
+        self._bring_to_front()
+
+    def _poll_editor_requests(self):
+        try:
+            while True:
+                request = self._editor_requests.get_nowait()
+                self.open_project_from_editor(request.get("project"))
+        except queue.Empty:
+            pass
+        self.after(self._EDITOR_POLL_MS, self._poll_editor_requests)
+
+    def _project_for_path(self, path):
+        """The stored project whose folder is [path] or contains it (the deepest one wins)."""
+        target = os.path.realpath(path)
+        best_name, best_root = None, ""
+        for name, data in self.config_manager.get_projects().items():
+            project_path = data.get("path") if isinstance(data, dict) else None
+            if not project_path:
+                continue
+            root = os.path.realpath(project_path)
+            inside = target == root or target.startswith(root.rstrip(os.sep) + os.sep)
+            if inside and len(root) > len(best_root):
+                best_name, best_root = name, root
+        return best_name
+
+    def _offer_new_project(self, path):
+        """A Flutter project opened in VS Code that the tool does not know yet: offer to add it."""
+        if not os.path.isfile(os.path.join(path, "pubspec.yaml")):
+            print(f"--- VS Code: {path} není Flutter projekt (chybí pubspec.yaml), zůstávám u aktuálního ---")
+            return
+        if self._warn_if_busy(os.path.basename(path)):
+            return
+        self.open_add_project_dialog(
+            parent_window=self._visible_window(),
+            initial_path=path,
+            hint="Projekt otevřený ve VS Code v nástroji zatím není.\nZkontroluj název a ulož ho.",
+        )
+
+    def _warn_if_busy(self, project_name):
+        """True (with a message) when a task runs, so the window must not be switched."""
+        if not (self.main_window and self.main_window.is_running):
+            return False
+        messagebox.showinfo(
+            "Probíhá úloha",
+            f"V projektu '{self.main_window.current_project_name}' právě běží úloha.\n"
+            f"Na '{project_name}' se přepni, až doběhne.",
+            parent=self.main_window,
+        )
+        return True
+
+    def _visible_window(self):
+        if self.main_window and self.main_window.winfo_exists():
+            return self.main_window
+        return self
+
+    def _bring_to_front(self):
+        window = self._visible_window()
+        if window.state() == "iconic":
+            window.deiconify()
+        window.lift()
+        window.focus_force()
+        if sys.platform == "darwin":
+            # Tk cannot activate a background app on macOS by itself.
+            script = f'tell application "System Events" to set frontmost of (first process whose unix id is {os.getpid()}) to true'
+            subprocess.Popen(["osascript", "-e", script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def show_project_selection_ui(self):
         """Nakonfiguruje toto (root) okno jako obrazovku pro výběr projektu."""
@@ -185,16 +288,15 @@ class App(tk.Tk):
             else:
                 self.populate_project_list()
 
-    def open_add_project_dialog(self, parent_window=None):
-        # ... (metoda zůstává stejná) ...
+    def open_add_project_dialog(self, parent_window=None, initial_path=None, hint=None):
         if parent_window is None:
             parent_window = self
-            
+
         def on_new_project_saved(project_name):
-            self.withdraw() 
-            self.show_main_app(project_name) 
-        
-        AddProjectDialog(parent_window, self.config_manager, on_new_project_saved)
+            self.withdraw()
+            self.show_main_app(project_name)
+
+        AddProjectDialog(parent_window, self.config_manager, on_new_project_saved, initial_path=initial_path, hint=hint)
 
     def show_main_app(self, project_name):
         # ... (metoda zůstává stejná) ...
