@@ -177,6 +177,26 @@ python3 main.py
 
 On first launch, point the project selector at a Flutter project directory. The tool remembers it for next time.
 
+`--project <folder>` opens the project stored for that folder (or for a folder above it) instead of the last used one; a Flutter project the tool does not know yet is offered in the *Přidat projekt* dialog with its path and name filled in.
+
+## VS Code button
+
+`vscode_extension/` adds a button that opens the tool from VS Code: the tool's icon above the editor (next to *Run*) and *ADT Tools* in the status bar. It opens the tool with the project of the VS Code window, so you do not have to switch projects in the tool by hand:
+
+- **The tool is not running** — it starts with that project.
+- **The tool is running** — the open window switches to that project and comes to the front; no second window opens. While a build or another task runs, it stays on its project and says so.
+- **The project is not in the tool yet** — the *Přidat projekt* dialog opens with the path and name filled in; saving it opens the project. A folder without `pubspec.yaml` leaves the tool on its current project.
+
+Install it once from the repository (needs only Python, no Node.js):
+
+```bash
+python3 vscode_extension/install.py
+```
+
+then in VS Code run *Developer: Reload Window* (Cmd/Ctrl+Shift+P). The script writes the path of your clone into the extension, so the button starts `main.py` from wherever you keep the repository. Run it again after moving the repository or when the extension changes. Without the `code` command in PATH, run *Shell Command: Install 'code' command in PATH* in VS Code first; for Cursor use `--editor cursor`. The `adtTools.dir` setting overrides the folder if needed.
+
+The tool starts through your login shell (`python3` from your PATH, as in a terminal); its output goes to `~/.cache/adt_flutter_tools/vscode-launch.log`. On macOS, bringing the window to the front uses System Events; allow it if macOS asks.
+
 ## Building a release binary
 
 A PyInstaller spec is included. The repository's release helper does the work:
@@ -190,12 +210,14 @@ The output binary is placed in `dist/`.
 ## Repository layout
 
 ```
-main.py             — entry point
+main.py             — entry point (`--project`, `--from-editor`)
+vscode_extension/   — VS Code button, installed by install.py
 setup.sh            — interactive dependency installer
 build_release.py    — PyInstaller wrapper
 src/
   constants.py      — config keys and the adt_tools_config.env template
   config_manager.py — persisted UI settings (config.json)
+  instance_link.py  — hands a VS Code request over to the running app
   ui/               — Tkinter app, main window, project selector, in-app logger
   logic/
     build_logic.py  — orchestrates the full build pipeline

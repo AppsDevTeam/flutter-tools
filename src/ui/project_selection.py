@@ -5,29 +5,42 @@ import os
 
 class AddProjectDialog(tk.Toplevel):
     """Dialog pro přidání nového projektu."""
-    def __init__(self, parent, config_manager, on_project_saved):
+    def __init__(self, parent, config_manager, on_project_saved, initial_path=None, hint=None):
         super().__init__(parent)
-        self.transient(parent) 
-        self.grab_set() 
+        self.transient(parent)
+        self.grab_set()
         self.title("ADT flutter tools - Přidat projekt") # <-- ZMĚNA NÁZVU
-        
+
         self.config_manager = config_manager
         self.on_project_saved = on_project_saved
-        
-        self.path_var = tk.StringVar()
-        self.name_var = tk.StringVar()
+
+        self.path_var = tk.StringVar(value=initial_path or "")
+        self.name_var = tk.StringVar(value=os.path.basename(os.path.normpath(initial_path)) if initial_path else "")
 
         frame = ttk.Frame(self, padding=10)
         frame.pack(expand=True, fill='both')
-        
-        ttk.Label(frame, text="Název projektu:").grid(row=0, column=0, sticky="w", pady=2)
-        ttk.Entry(frame, textvariable=self.name_var).grid(row=0, column=1, columnspan=2, sticky="ew", pady=2)
-        
-        ttk.Label(frame, text="Cesta k projektu:").grid(row=1, column=0, sticky="w", pady=2)
-        ttk.Entry(frame, textvariable=self.path_var).grid(row=1, column=1, sticky="ew", pady=2)
-        ttk.Button(frame, text="...", width=3, command=self.browse_path).grid(row=1, column=2, padx=(5,0))
-        
-        ttk.Button(frame, text="Uložit projekt", command=self.save_project).grid(row=2, column=0, columnspan=3, pady=10)
+        frame.columnconfigure(1, weight=1)
+
+        row = 0
+        if hint:
+            ttk.Label(frame, text=hint).grid(row=row, column=0, columnspan=3, sticky="w", pady=(0, 8))
+            row += 1
+
+        ttk.Label(frame, text="Název projektu:").grid(row=row, column=0, sticky="w", pady=2)
+        name_entry = ttk.Entry(frame, textvariable=self.name_var, width=40)
+        name_entry.grid(row=row, column=1, columnspan=2, sticky="ew", pady=2)
+        row += 1
+
+        ttk.Label(frame, text="Cesta k projektu:").grid(row=row, column=0, sticky="w", pady=2)
+        ttk.Entry(frame, textvariable=self.path_var).grid(row=row, column=1, sticky="ew", pady=2)
+        ttk.Button(frame, text="...", width=3, command=self.browse_path).grid(row=row, column=2, padx=(5,0))
+        row += 1
+
+        ttk.Button(frame, text="Uložit projekt", command=self.save_project).grid(row=row, column=0, columnspan=3, pady=10)
+
+        if initial_path:
+            name_entry.focus_set()
+            name_entry.select_range(0, tk.END)
         
     def browse_path(self):
         path = filedialog.askdirectory(title="Vyberte kořenový adresář Flutter projektu")

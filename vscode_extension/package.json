@@ -1,0 +1,39 @@
+{
+  "name": "adt-flutter-tools",
+  "displayName": "ADT Flutter Tools",
+  "description": "Spustí ADT Flutter Tools jedním kliknutím – tlačítkem nad editorem nebo ve stavovém řádku.",
+  "version": "1.0.0",
+  "publisher": "appsdevteam",
+  "license": "UNLICENSED",
+  "private": true,
+  "icon": "media/icon-128.png",
+  "engines": { "vscode": "^1.75.0" },
+  "categories": ["Other"],
+  "extensionKind": ["ui"],
+  "main": "./extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "commands": [
+      {
+        "command": "adtTools.open",
+        "title": "Spustit ADT Flutter Tools",
+        "icon": { "light": "media/icon-32.png", "dark": "media/icon-32.png" }
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        { "command": "adtTools.open", "group": "navigation@-100" }
+      ]
+    },
+    "configuration": {
+      "title": "ADT Flutter Tools",
+      "properties": {
+        "adtTools.dir": {
+          "type": "string",
+          "default": "",
+          "description": "Složka ADT Flutter Tools (obsahuje main.py). Prázdné = složka, ze které bylo rozšíření nainstalováno."
+        }
+      }
+    }
+  }
+}
