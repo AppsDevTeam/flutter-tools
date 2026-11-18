@@ -25,6 +25,8 @@ from .build_web import run_web_tasks_pre_build, run_web_tasks_post_build, uses_r
 from . import build_session
 from .build_session import BuildCancelled, BuildSession, PARAM_BUILD_SESSION
 from .build_desktop import run_desktop_tasks_post_build
+from .dart_symbols import has_symbol_files, invalidate_aot_cache
+from .prebuild_checks import decrypt_hint, find_stale_sops_secrets, verify_android_signing
 from .crash_reporting import PROVIDER_GLITCHTIP, GlitchTipSettings, get_provider, release_dart_define, verify_glitchtip
 from .web_deploy import read_deploy_stage, deploy_web
 
@@ -65,6 +67,34 @@ def run_flutter_build_logic(params, logger):
     finally:
         build_session.deactivate()
         session.discard_backups()
+
+
+def _run_prebuild_checks(logger, build_type, flavor, env, build_mode):
+    """Ověří dešifrované secrets a podepisování Androidu. False = build zrušit."""
+    sops_problems = find_stale_sops_secrets()
+    if sops_problems:
+        logger.header("--- Dešifrované secrets neodpovídají zašifrovaným ---")
+        for problem in sops_problems:
+            logger.warn(f"   ⚠️ {problem}")
+        logger.warn(decrypt_hint())
+        listed = "\n".join(f"• {problem}" for problem in sops_problems)
+        if not messagebox.askyesno(
+            "Zastaralé secrets",
+            f"{listed}\n\n{decrypt_hint()}\n\n"
+            f"Ano = pokračovat i tak\nNe = zrušit build (nic se nezměnilo)",
+            icon='warning'
+        ):
+            return False
+
+    if build_type in ('apk', 'appbundle') and build_mode != 'debug':
+        failure = verify_android_signing(logger, flavor, env, build_mode)
+        if failure:
+            logger.error(f"Podepisování selže:\n{failure}")
+            if sops_problems:
+                logger.error(decrypt_hint())
+            return False
+
+    return True
 
 
 def _handle_failure(params, logger, state, message):
@@ -161,6 +191,12 @@ def _run_build(params, logger, state):
             logger.warn("Pokračuji bez nahrání symbolů.")
 
     session.check()
+
+    # --- KROK 0: Kontroly, na kterých by build jinak spadl až na konci ---
+    # Hned na začátku, ať chyba přijde po pár sekundách; verze ani soubory se ještě nezměnily.
+    if not _run_prebuild_checks(logger, build_type, flavor, env, build_mode):
+        logger.error("Build zrušen před začátkem, verze ani soubory se nezměnily.")
+        return
 
     # --- KROK 1: Spuštění flutter pub get ---
     ret_code, _ = execute_command(['flutter', 'pub', 'get'], logger, title="Spouštím flutter pub get")
@@ -284,6 +320,11 @@ def _run_build(params, logger, state):
         
         symbols_dir = f"crashlytics/{build_type}{symbols_flavor_part}_{major}_{minor}_{patch}"
         
+        # Bez symbolů ve složce by Flutter mohl vzít snapshot z cache a symboly nezapsat
+        # (viz dart_symbols.py) — typicky po rollbacku, který složku smazal.
+        if not has_symbol_files(symbols_dir):
+            invalidate_aot_cache(logger)
+
         # Vytvoření složky (pro jistotu); nová složka se při přerušení / selhání smaže
         build_session.track_new_dir("crashlytics")
         build_session.track_new_dir(symbols_dir)
@@ -330,7 +371,15 @@ def _run_build(params, logger, state):
     
     if ret_code != 0:
         _handle_failure_here(f"Build selhal s chybovým kódem: {ret_code}")
-        return 
+        return
+
+    symbols_dir = params.get("_symbols_dir")
+    if symbols_dir and not has_symbol_files(symbols_dir):
+        _handle_failure_here(
+            f"Build nevytvořil Dart symboly ve '{symbols_dir}'. Obfuskovaný artefakt "
+            f"bez symbolů nejde symbolikovat, proto se nepoužije."
+        )
+        return
 
     # --- KROK 6: Platform-specific úkoly PO buildu ---
     output_dir = None
