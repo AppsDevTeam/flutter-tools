@@ -4,6 +4,7 @@ import shutil
 import glob
 import plistlib
 import stat
+from datetime import timezone
 
 # Importujeme konstanty a funkce
 from .build_common import execute_command
@@ -335,3 +336,89 @@ def _upload_ios_symbols_to_glitchtip(logger, params, env_vars, actions_performed
 
     if upload_debug_files(logger, settings, paths, "iOS symboly"):
         actions_performed["symbols"] = True
+
+
+# 'flutter build ipa' exportuje IPA příkazem xcodebuild -exportArchive a ten do výstupní složky
+# zapíše i ExportOptions.plist, se kterým exportoval (podepsání pro zvolený flavor).
+_FLUTTER_ARCHIVE_DIR = os.path.join('build', 'ios', 'archive')
+_FLUTTER_EXPORT_OPTIONS = os.path.join('build', 'ios', 'ipa', 'ExportOptions.plist')
+_UPLOAD_DIR = os.path.join('build', 'ios', 'upload')
+
+
+def upload_to_app_store_connect(logger, params):
+    """
+    Nahraje archiv z 'flutter build ipa' do App Store Connect stejně jako Distribute App
+    v Organizeru Xcode: xcodebuild -exportArchive s destination=upload, pod účtem přihlášeným
+    v Xcode (Settings → Accounts), bez API klíče. Vrátí True, když nahrání prošlo.
+
+    Číslo buildu se nemění (manageAppVersionAndBuildNumber=false): jinak Xcode build, jehož
+    číslo už v App Store Connect je, potichu nahraje pod vyšším číslem a to pak nesedí
+    s pubspec.yaml, gitem ani symboly. Duplicitní build App Store Connect odmítne.
+    """
+    logger.header("--- Nahrávám do App Store Connect ---")
+    version_name = str(params.get("_version_name"))
+    build_number = str(params.get("_build_number"))
+
+    archives = glob.glob(os.path.join(_FLUTTER_ARCHIVE_DIR, '*.xcarchive'))
+    if not archives:
+        logger.error(f"Nahrání selhalo: v '{_FLUTTER_ARCHIVE_DIR}' není archiv .xcarchive.")
+        return False
+    archive_path = max(archives, key=os.path.getmtime)
+
+    try:
+        with open(os.path.join(archive_path, 'Info.plist'), 'rb') as handle:
+            archive_info = plistlib.load(handle)
+        with open(_FLUTTER_EXPORT_OPTIONS, 'rb') as handle:
+            export_options = plistlib.load(handle)
+    except Exception as e:
+        logger.error(f"Nahrání selhalo: nejde přečíst archiv nebo '{_FLUTTER_EXPORT_OPTIONS}': {e}")
+        return False
+
+    properties = archive_info.get('ApplicationProperties') or {}
+    archive_version = (properties.get('CFBundleShortVersionString'), properties.get('CFBundleVersion'))
+    if archive_version != (version_name, build_number):
+        logger.error(
+            f"Nahrání selhalo: archiv má verzi {archive_version[0]}+{archive_version[1]}, "
+            f"build je {version_name}+{build_number}."
+        )
+        return False
+
+    # ExportOptions.plist z dřívějšího buildu (jiný flavor) by archiv podepsal jiným profilem.
+    created = archive_info.get('CreationDate')
+    if created and os.path.getmtime(_FLUTTER_EXPORT_OPTIONS) < created.replace(tzinfo=timezone.utc).timestamp():
+        logger.error(
+            f"Nahrání selhalo: '{_FLUTTER_EXPORT_OPTIONS}' je starší než archiv, "
+            f"Flutter z tohoto buildu IPA neexportoval."
+        )
+        return False
+
+    export_options['destination'] = 'upload'
+    export_options['manageAppVersionAndBuildNumber'] = False
+
+    shutil.rmtree(_UPLOAD_DIR, ignore_errors=True)
+    os.makedirs(_UPLOAD_DIR)
+    options_path = os.path.join(_UPLOAD_DIR, 'ExportOptions.plist')
+    with open(options_path, 'wb') as handle:
+        plistlib.dump(export_options, handle)
+
+    bundle_id = properties.get('CFBundleIdentifier', '?')
+    logger.info(f"{bundle_id} {version_name} ({build_number}), účet přihlášený v Xcode")
+
+    ret_code, _ = execute_command(
+        [
+            'xcodebuild', '-exportArchive',
+            '-archivePath', archive_path,
+            '-exportOptionsPlist', options_path,
+            '-exportPath', _UPLOAD_DIR,
+        ],
+        logger,
+    )
+    if ret_code != 0:
+        logger.error(
+            "Nahrání do App Store Connect selhalo. Časté příčiny: build s tímto číslem už v App "
+            "Store Connect je, nebo v Xcode (Settings → Accounts) není přihlášený účet týmu."
+        )
+        return False
+
+    logger.success(f"Nahráno do App Store Connect: {version_name} ({build_number}). Zpracování trvá pár minut.")
+    return True

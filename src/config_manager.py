@@ -5,7 +5,7 @@ from .constants import (
     KEY_FLAVOR, KEY_ENV, KEY_BUMP_STRATEGY, BUMP_PATCH, KEY_GIT_PUSH,
     KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS, KEY_INSTALL_COCOAPODS,
     KEY_CHECK_SQLITE_WEB, KEY_UPDATE_CHANGELOG, KEY_CHANGELOG_VIA_CLAUDE,
-    KEY_WEB_ZIP, KEY_WEB_DEPLOY
+    KEY_WEB_ZIP, KEY_WEB_DEPLOY, KEY_UPLOAD_APP_STORE
 )
 
 # Defaults applied to every build preset; used both for new projects and lazy
@@ -20,6 +20,8 @@ PRESET_DEFAULTS = {
     KEY_DISABLE_OBFUSCATION: False,
     KEY_UPLOAD_SYMBOLS: True,
     KEY_INSTALL_COCOAPODS: True,
+    # Nahrání je navenek (TestFlight), proto se zapíná v presetu vědomě.
+    KEY_UPLOAD_APP_STORE: False,
     KEY_CHECK_SQLITE_WEB: False,
     KEY_UPDATE_CHANGELOG: True,
     KEY_CHANGELOG_VIA_CLAUDE: True,
