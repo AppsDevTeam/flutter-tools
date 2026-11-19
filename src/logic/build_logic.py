@@ -9,7 +9,7 @@ from ..constants import (
     KEY_BUMP_STRATEGY, BUMP_NONE,
     KEY_GIT_PUSH, KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS,
     KEY_INSTALL_COCOAPODS, KEY_CHECK_SQLITE_WEB, KEY_UPDATE_CHANGELOG,
-    KEY_CHANGELOG_VIA_CLAUDE, KEY_WEB_ZIP, KEY_WEB_DEPLOY
+    KEY_CHANGELOG_VIA_CLAUDE, KEY_WEB_ZIP, KEY_WEB_DEPLOY, KEY_UPLOAD_APP_STORE
 )
 from .build_common import (
     execute_command, parse_env_file, resolve_dart_defines,
@@ -20,7 +20,7 @@ from .build_common import (
 )
 from .build_android import run_android_tasks_post_build, purge_stale_artifacts
 from .android_snapshot_check import purge_native_libs_cache
-from .build_ios import run_ios_tasks_pre_build, run_ios_tasks_post_build
+from .build_ios import run_ios_tasks_pre_build, run_ios_tasks_post_build, upload_to_app_store_connect
 from .build_web import run_web_tasks_pre_build, run_web_tasks_post_build, uses_resources_cdn
 from . import build_session
 from .build_session import BuildCancelled, BuildSession, PARAM_BUILD_SESSION
@@ -152,6 +152,8 @@ def _run_build(params, logger, state):
         f"symbols={params.get(KEY_UPLOAD_SYMBOLS, False)}, "
         f"cocoapods={params.get(KEY_INSTALL_COCOAPODS, False)}"
     )
+    if build_type == 'ipa':
+        logger.info(f"📋 iOS: upload_app_store={params.get(KEY_UPLOAD_APP_STORE, False)}")
     if build_type == 'web':
         logger.info(
             f"📋 Web: zip={params.get(KEY_WEB_ZIP, True)}, deploy={params.get(KEY_WEB_DEPLOY, False)}"
@@ -423,10 +425,30 @@ def _run_build(params, logger, state):
             deploy_failed = True
 
 
+    # --- KROK 7.6: Nahrání do App Store Connect (místo Distribute App v Xcode) ---
+    uploaded = False
+    upload_failed = False
+    if build_type == 'ipa' and params.get(KEY_UPLOAD_APP_STORE, False):
+        if build_mode != 'release':
+            logger.warn(f"Nahrání do App Store Connect přeskočeno: build je {build_mode}, ne release.")
+        elif upload_to_app_store_connect(logger, params):
+            uploaded = True
+        else:
+            upload_failed = True
+
     # --- KROK 8: Otevření složky ---
-    open_output_folder(logger, build_type, output_dir)
+    if uploaded:
+        logger.info("IPA je v App Store Connect — archiv v Xcode neotevírám.")
+    else:
+        # Po selhání nahrání se archiv otevře v Organizeru, ať jde nahrát ručně.
+        open_output_folder(logger, build_type, output_dir)
     
     if deploy_failed:
         logger.warn("\n⚠️ Build je hotový, nasazení webu se nepovedlo (viz výše).")
+    elif upload_failed:
+        logger.warn(
+            "\n⚠️ Build je hotový, nahrání do App Store Connect se nepovedlo (viz výše). "
+            "Archiv je otevřený v Xcode, nahrát jde přes Distribute App."
+        )
     else:
         logger.success("\n✅ Proces buildu úspěšně dokončen!")

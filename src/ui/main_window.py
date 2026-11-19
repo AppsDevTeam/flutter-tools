@@ -37,7 +37,7 @@ from ..constants import (
     BUMP_MINOR, BUMP_PATCH, BUMP_BUILD, KEY_GIT_PUSH, 
     KEY_DISABLE_OBFUSCATION, KEY_UPLOAD_SYMBOLS, KEY_INSTALL_COCOAPODS,
     KEY_CHECK_SQLITE_WEB, KEY_UPDATE_CHANGELOG, KEY_CHANGELOG_VIA_CLAUDE,
-    KEY_WEB_ZIP, KEY_WEB_DEPLOY
+    KEY_WEB_ZIP, KEY_WEB_DEPLOY, KEY_UPLOAD_APP_STORE
 )
 
 class _SilentLogger:
@@ -255,6 +255,9 @@ class MainWindow(tk.Toplevel):
             KEY_INSTALL_COCOAPODS: tk.BooleanVar(
                 value=manual_settings.get(KEY_INSTALL_COCOAPODS, True)
             ),
+            KEY_UPLOAD_APP_STORE: tk.BooleanVar(
+                value=manual_settings.get(KEY_UPLOAD_APP_STORE, PRESET_DEFAULTS[KEY_UPLOAD_APP_STORE])
+            ),
             KEY_CHECK_SQLITE_WEB: tk.BooleanVar(
                 value=manual_settings.get(KEY_CHECK_SQLITE_WEB, False)
             ),
@@ -364,6 +367,12 @@ class MainWindow(tk.Toplevel):
             padx=(20, 0)
         )
         self._create_checkbox(checkbox_subframe, "Instalovat Cocoapods (pro iOS)", KEY_INSTALL_COCOAPODS)
+        # Místo otevření archivu v Xcode (Distribute App) nahraje IPA rovnou, jen u ipa buildu.
+        self.app_store_check = self._create_checkbox(
+            checkbox_subframe,
+            "Nahrát do App Store Connect (účtem z Xcode)",
+            KEY_UPLOAD_APP_STORE
+        )
 
         # ... (zbytek: obfuscate_frame, web_frame, konzole, tlačítko) ...
         # Všechny ostatní řádky se posunuly o 1 dolů
@@ -604,6 +613,9 @@ class MainWindow(tk.Toplevel):
                 # ale hodnotu v proměnné měnit nemusíme, logika to bude ignorovat.
 
             self._update_crash_reporting_ui(build_type)
+
+            # Hodnota v presetu zůstává, logika ji mimo ipa build ignoruje.
+            self.app_store_check.config(state="normal" if build_type == "ipa" else "disabled")
 
             # Claude má smysl jen když se changelog vůbec aktualizuje
             if self.build_vars[KEY_UPDATE_CHANGELOG].get():
