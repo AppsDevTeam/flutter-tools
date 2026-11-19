@@ -29,7 +29,7 @@ Runs a parametrised Flutter build with all the steps you would normally chain by
 - **CocoaPods install** for iOS (clean reinstall before the build).
 - **Upload to App Store Connect** (optional, `ipa` release builds) — instead of opening the archive in Xcode for *Distribute App*, the build uploads it with `xcodebuild -exportArchive` and the account signed in to Xcode (Settings → Accounts; the Developer role is enough, no API key). It reuses the `ExportOptions.plist` Flutter exported the IPA with, so the signing matches the flavor, and only switches `destination` to `upload`. The build number is never changed (`manageAppVersionAndBuildNumber` off): a build number App Store Connect already has is rejected instead of being uploaded under the next free number that would no longer match `pubspec.yaml`, git and the symbols. The upload runs after the git push; when it fails, the archive opens in Xcode as before so it can be uploaded by hand.
 - **Git push** of `pubspec.yaml` and `CHANGELOG.md` after a successful build.
-- **Web extras**: optional check for the `sqlite3.wasm` file expected by some apps; *CanvasKit z vlastního serveru* builds with `--no-web-resources-cdn`, so the browser loads Flutter's renderer from the app's own server instead of Google's CDN (stored in the project as `WEB_RESOURCES_CDN=false`); the ZIP of `build/web` is optional (on by default) — it is committed with the build, so it keeps every released build in git even after the next build rewrites `build/web`.
+- **Web extras**: optional check for the `sqlite3.wasm` file expected by some apps; *CanvasKit z vlastního serveru* builds with `--no-web-resources-cdn`, so the browser loads Flutter's renderer from the app's own server instead of Google's CDN (stored in the project as `WEB_RESOURCES_CDN=false`); the ZIP of `build/web` is optional (on by default) — it is committed with the build, so it keeps every released build in git even after the next build rewrites `build/web`. Without the ZIP the output folder is not opened after the build.
 - **Web deploy** (optional, needs git push) with Deployer, see [Web deploy](#web-deploy).
 - **Presets** — saved combinations of the above so you can reproduce a release with one click.
 - **Cancel** — while a build runs, the run button turns into an *Ukončit build* swipe button. Swiping it to the end stops the running command with its child processes (Gradle, xcodebuild, pod, Claude) and returns the project to its state before the build: version, changelog, `GoogleService-Info.plist`, Pods and the Xcode project, `build/web`, new symbol folders and anything the build staged in git. Once the commit and push start, the build can no longer be cancelled. A failed build is rolled back the same way.
@@ -127,7 +127,14 @@ For projects deployed with Deployer from `adt/docker-deployer` (`deploy.php`, `c
 WEB_DEPLOY_STAGE=test
 ```
 
-Without the value the *Nasadit na server* option in the Web box stays disabled. With it, a web build with git push and the option checked continues after the push:
+Like `DART_DEFINES_*`, the stage can be set per flavor / env (`WEB_DEPLOY_STAGE_<flavor>_<env>`, `_<flavor>`, `_<env>`, then the plain key), so a build for another API environment goes to its own server. An empty value disables the deploy for that build, e.g. while the production web does not exist yet:
+
+```env
+WEB_DEPLOY_STAGE=test
+WEB_DEPLOY_STAGE_prod=
+```
+
+Without a value for the selected flavor / env the *Nasadit na server* option in the Web box stays disabled (and unchecked). With it, a web build with git push and the option checked continues after the push:
 
 1. Moves `BRANCH` on the remote to the build commit (`git push <remote> HEAD:<BRANCH>`, no force), unless the build already is on that branch. A branch with commits the build branch does not have stops the deploy; merge it by hand.
 2. Runs `composer install` when `vendor/bin/dep` is missing — through the `composer:2` Docker image when composer is not installed.

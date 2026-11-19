@@ -414,9 +414,9 @@ def _run_build(params, logger, state):
     # --- KROK 7.5: Nasazení webu (server bere build z gitu, proto až po pushi) ---
     deploy_failed = False
     if build_type == 'web' and params.get(KEY_WEB_DEPLOY, False):
-        stage = read_deploy_stage(env_vars)
+        stage = read_deploy_stage(flavor, env, env_vars)
         if not stage:
-            logger.warn(f"Nasazení přeskočeno: v {ADT_PROJECT_CONFIG_FILENAME} chybí WEB_DEPLOY_STAGE.")
+            logger.warn(f"Nasazení přeskočeno: v {ADT_PROJECT_CONFIG_FILENAME} chybí WEB_DEPLOY_STAGE pro tento build.")
         elif not pushed:
             logger.error("Nasazení přeskočeno: build není na gitu (push vypnutý nebo selhal).")
             deploy_failed = True
@@ -439,6 +439,9 @@ def _run_build(params, logger, state):
     # --- KROK 8: Otevření složky ---
     if uploaded:
         logger.info("IPA je v App Store Connect — archiv v Xcode neotevírám.")
+    elif build_type == 'web' and not params.get(KEY_WEB_ZIP, True):
+        # Web bez ZIPu jde na server přes git (Deployer), ručně se nic nepředává.
+        logger.info("Web bez ZIPu — složku s buildem neotevírám.")
     else:
         # Po selhání nahrání se archiv otevře v Organizeru, ať jde nahrát ručně.
         open_output_folder(logger, build_type, output_dir)

@@ -643,16 +643,21 @@ class MainWindow(tk.Toplevel):
 
     def _update_web_deploy_ui(self):
         """
-        Nasazení podle WEB_DEPLOY_STAGE v adt_tools_config.env: bez stage se nenabízí, bez pushu
-        nemá smysl (server bere build z gitu).
+        Nasazení podle WEB_DEPLOY_STAGE v adt_tools_config.env pro zvolený flavor / env: bez stage
+        se nenabízí, bez pushu nemá smysl (server bere build z gitu).
         """
-        stage = read_deploy_stage(parse_env_file(_SilentLogger()))
+        flavor = self.build_vars[KEY_FLAVOR].get()
+        env = self.build_vars[KEY_ENV].get()
+        stage = read_deploy_stage(flavor, env, parse_env_file(_SilentLogger()))
         if not stage:
-            # Hodnotu v presetu neměníme, jen ji nejde zapnout (logika bez stage nenasazuje).
+            # Bez stage pro tenhle flavor / env se nenasazuje: volba se odškrtne a nejde zapnout.
+            target = " / ".join(part for part in (flavor, env) if part)
+            missing = f"WEB_DEPLOY_STAGE pro {target}" if target else "WEB_DEPLOY_STAGE"
             self.web_deploy_check.config(
-                text=f"Nasadit na server (v {ADT_PROJECT_CONFIG_FILENAME} chybí WEB_DEPLOY_STAGE)",
+                text=f"Nasadit na server (v {ADT_PROJECT_CONFIG_FILENAME} chybí {missing})",
                 state="disabled"
             )
+            self.build_vars[KEY_WEB_DEPLOY].set(False)
             return
 
         self.web_deploy_check.config(text=f"Nasadit na server: make dep -- {stage} ({stage_config_path(stage)})")
