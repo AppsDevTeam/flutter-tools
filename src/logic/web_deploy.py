@@ -13,7 +13,7 @@ import subprocess
 import time
 from tkinter import messagebox
 
-from .build_common import execute_command, parse_env_file
+from .build_common import execute_command, parse_env_file, resolve_value
 
 WEB_DEPLOY_STAGE_KEY = "WEB_DEPLOY_STAGE"
 
@@ -26,9 +26,13 @@ _DOCKER_START_TIMEOUT = 120
 _DOCKER_POLL_INTERVAL = 2
 
 
-def read_deploy_stage(env_vars):
-    """Stage z adt_tools_config.env; None = projekt web nasazovat nechce."""
-    return env_vars.get(WEB_DEPLOY_STAGE_KEY, "").strip() or None
+def read_deploy_stage(flavor, env, env_vars):
+    """
+    Stage z adt_tools_config.env pro zvolený flavor / env (WEB_DEPLOY_STAGE_<flavor>_<env>,
+    _<flavor>, _<env>, jinak WEB_DEPLOY_STAGE). None = tenhle build se nenasazuje: klíč chybí,
+    nebo je prázdný (např. WEB_DEPLOY_STAGE_prod= , dokud produkční web není).
+    """
+    return (resolve_value(WEB_DEPLOY_STAGE_KEY, flavor, env, env_vars) or "").strip() or None
 
 
 def stage_config_path(stage):

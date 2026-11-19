@@ -29,7 +29,9 @@ ADT_TOOLS_ENV_EXAMPLE = """PACKAGE_NAME=\"com.vasetvafirma.vasappka\"
 
 # Nasazení webu Deployerem (adt/docker-deployer) po pushi web buildu: stage z config/.env.<stage>
 # v projektu (BRANCH tam říká, kterou větev server klonuje). Bez hodnoty se volba v UI nenabízí.
+# Jde nastavit i podle flavoru / env (WEB_DEPLOY_STAGE_<env>); prázdná hodnota build nenasadí.
 # WEB_DEPLOY_STAGE=test
+# WEB_DEPLOY_STAGE_prod=
 
 # Ukázka pro flavors
 # FIREBASE_APP_ID_cashdesk_prod="xxx"
