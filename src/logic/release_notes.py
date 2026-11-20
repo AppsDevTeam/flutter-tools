@@ -83,7 +83,13 @@ Claude" u aktualizace CHANGELOG.md). Pravidla níže patří projektu — upravu
    odrážek větu „Opakovaný build beze změn v kódu."
 3. Vypiš commity každého rozsahu a vynech commity samotného build nástroje:
    `git log <od>..<do> --no-merges --invert-grep --extended-regexp --grep='^(Version|Web Build|Desktop Build|Symbols|Cocoapods|Build) ' --pretty=format:'%h %s%n%b%n---'`
-   — čti i tělo commitu, bývá v něm důvod změny a verze, ve které se chyba projevila
+   — čti i tělo commitu, bývá v něm důvod změny a verze, ve které se chyba projevila.
+   Pak vypiš i merge commity téhož rozsahu:
+   `git log <od>..<do> --merges --pretty=format:'%h %s%n%b%n---'`
+   Obsahuje-li zpráva merge commitu odkaz na tiket (Trello nebo Jira URL, klíč Jira), je to
+   tiket **celé sloučené větve** — patří ke všem odrážkám, které popisují její commity
+   (`git log <hash>^1..<hash>^2 --no-merges --format='%h %s'`), vedle tiketů z commitů
+   samotných. Merge commity bez odkazu na tiket ignoruj
 4. U commitů, z jejichž předmětu není jasné, co se pro uživatele změnilo (`fix`, `wip`,
    `oprava crashe`, holá URL tiketu nebo Crashlytics), si **přečti diff**:
    `git show <hash> -- lib/ | head -300` (seznam souborů ze `--stat` nestačí, z názvů
@@ -154,10 +160,16 @@ Jedna věta o zaměření releasu (jen když je změn víc než zhruba osm).
 - Změny bez dopadu na chování aplikace (přejmenování, přesuny a čištění kódu,
   formátování, komentáře, úpravy testů, launch konfigurace) do záznamu nepatří ani
   souhrnně
-- Sekce **Infrastruktura** je pro interní změny s dopadem na build, vydávání nebo riziko
-  regrese (CI, závislosti, verze SDK, větší refactoring). U refactoringu napiš, kterou
-  část aplikace se vyplatí přetestovat, ne co se v kódu přejmenovalo. Nemá-li sekce
-  obsah, vynech ji
+- Záznam popisuje vydanou verzi aplikace, ne práci na repozitáři. Změny jen ve
+  vývojářských nástrojích a postupech (skripty, Makefile, práce s tajnými soubory,
+  nastavení editoru, git a zrcadlení repozitáře) do něj nepatří, stejně jako pokyny pro
+  vývojáře typu „po stažení změn spusť …“ — ty patří do commitu nebo MR
+- `CHANGELOG.md` odchází se zdrojovým kódem i ke klientovi. Nepiš o tom, co se klientovi
+  nepředává, ani o interních dokumentech a postupech týmu
+- Sekce **Infrastruktura** je pro interní změny s dopadem na vydanou aplikaci, její build
+  na CI nebo riziko regrese (CI, závislosti, verze SDK, větší refactoring). U refactoringu
+  napiš, kterou část aplikace se vyplatí přetestovat, ne co se v kódu přejmenovalo.
+  Nemá-li sekce obsah, vynech ji
 - Commity, které mění jen `CHANGELOG.md`, `.claude/commands/release-notes.md` nebo
   `adt_tools_config.env`, do záznamu nepatří — jsou to úpravy release notes samotných
 - Řádky `Co-Authored-By` v tělech commitů ignoruj
